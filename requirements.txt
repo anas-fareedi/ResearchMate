@@ -1,0 +1,17 @@
+python-dotenv
+pydantic
+langchain
+langchain-google-genai
+langchain-community
+langgraph
+mcp
+httpx
+aiofiles
+beautifulsoup4
+lxml
+tenacity
+rich
+orjson
+pandas
+google-generativeai
+nest-asyncio
