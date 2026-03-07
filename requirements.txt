@@ -15,3 +15,6 @@ orjson
 pandas
 google-generativeai
 nest-asyncio
+fpdf
+requests
+scholarly

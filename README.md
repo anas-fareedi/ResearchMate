@@ -1,1 +1,178 @@
-# Research_Assistant
+# Research Assistant 🔍
+
+An AI-powered research assistant that automatically searches the web, extracts content, and generates comprehensive summaries using Google's Gemini AI.
+
+## Features ✨
+
+- **Intelligent Query Planning**: Automatically extracts key search terms from your research question
+- **Multi-Source Search**: Searches Google, Wikipedia, ArXiv, and ScienceDirect
+- **Academic API Integration**: 
+  - ArXiv API for open-access preprints
+  - Elsevier API for ScienceDirect and Scopus (requires free API key)
+- **Content Extraction**: Automatically extracts and cleans relevant content from web pages
+- **AI Summarization**: Uses Google Gemini to synthesize information from multiple sources
+- **Dual Output**: Generates both JSON and PDF reports with your research findings
+- **Security Features**: 
+  - URL validation to prevent SSRF attacks
+  - Input sanitization
+  - Rate limiting for respectful web scraping
+  - Automatic retry logic for failed requests
+
+## Installation 📦
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd Reasech_assistant
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add your API keys:
+   ```
+   GEMINI_API_KEY=your_gemini_key_here
+   Elsevier_API_KEY=your_elsevier_key_here  # Optional but recommended
+   ```
+   
+   **Get your API keys:**
+   - Gemini API: https://makersuite.google.com/app/apikey
+   - Elsevier API: https://dev.elsevier.com/ (free, for ScienceDirect/Scopus)
+   
+   **Note**: Elsevier API is optional but highly recommended for academic research.
+
+## Usage 🚀
+
+### Basic Usage
+
+```python
+from research import research
+
+# Simple research query
+result = research("What are the latest developments in quantum computing?")
+
+print(f"Summary: {result['summary']}")
+print(f"JSON saved to: {result['json_path']}")
+print(f"PDF saved to: {result['pdf_path']}")
+```
+
+### Advanced Usage with Custom Websites
+
+```python
+from research import research
+
+result = research(
+    query="Impact of climate change on marine ecosystems",
+    websites=[
+        "https://www.nature.com",
+        "https://www.sciencedirect.com",
+        "https://oceanservice.noaa.gov"
+    ]
+)
+```
+
+### Research on Academic Papers
+
+```python
+from research import research
+
+result = research(
+    query="Synthetic data generation using GANs",
+    websites=[
+        "https://www.arxiv.org",
+        "https://www.sciencedirect.com",  # Uses Elsevier API
+        "https://www.semanticscholar.com"
+    ]
+)
+```
+
+**Note**: For ScienceDirect, ensure you have `Elsevier_API_KEY` in your `.env` file. See [ELSEVIER_API_GUIDE.md](ELSEVIER_API_GUIDE.md) for setup instructions.
+
+## Configuration ⚙️
+
+Edit `APP/config.py` to customize:
+
+- **LLM Settings**: Model, temperature, max tokens
+- **Search Settings**: Max URLs, timeouts, content length
+- **Output Settings**: File formats, PDF styling
+- **Rate Limiting**: Requests per second, retry attempts
+
+## Architecture 🏗️
+
+The research assistant uses a LangGraph workflow with 5 sequential agents:
+
+1. **Planning Agent**: Analyzes query and extracts search terms
+2. **Search Agent**: Finds relevant URLs from multiple sources
+3. **Extraction Agent**: Scrapes and cleans content from URLs
+4. **Summarization Agent**: Uses AI to synthesize findings
+5. **Saving Agent**: Generates JSON and PDF reports
+
+See `ARCHITECTURE.txt` for detailed flow diagrams.
+
+## Output 📄
+
+Results are saved to the `research_outputs/` directory:
+
+- **JSON file**: Complete data including all sources and metadata
+- **PDF file**: Formatted report with summary and source content
+
+## Security Features 🔒
+
+- **SSRF Protection**: Validates all URLs to prevent access to private networks
+- **Input Sanitization**: Cleans and validates all user inputs
+- **Rate Limiting**: Respects website resources with built-in delays
+- **Retry Logic**: Handles transient failures gracefully
+- **Error Logging**: Comprehensive logging for debugging
+
+## Error Handling 🛡️
+
+The assistant includes robust error handling:
+
+- Network failures trigger automatic retries
+- Invalid URLs are skipped with warnings
+- Missing API keys show helpful error messages
+- Partial failures still generate output with available data
+
+## Limitations ⚠️
+
+- Some websites may block automated access
+- AI summaries depend on Gemini API availability
+- Content extraction quality varies by website structure
+- Rate limiting may slow down large research tasks
+
+## Troubleshooting 🔧
+
+**No content extracted**: Some websites block scrapers. Try different websites or use Wikipedia.
+
+**API errors**: Verify your `GEMINI_API_KEY` is set correctly in `.env`
+
+**Timeout errors**: Increase `request_timeout` in `config.py`
+
+**Missing dependencies**: Run `pip install -r requirements.txt` again
+
+## Contributing 🤝
+
+Contributions welcome! Please ensure:
+
+- All tests pass
+- Code follows existing style
+- Security best practices are maintained
+- Documentation is updated
+
+## License 📝
+
+See LICENSE file for details.
+
+## Acknowledgments 🙏
+
+- Google Gemini for AI summarization
+- LangChain & LangGraph for workflow orchestration
+- BeautifulSoup for web scraping
+- FPDF for PDF generation
