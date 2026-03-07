@@ -1,0 +1,151 @@
+"""
+Visual Architecture of the Research Assistant
+
+                    ┌─────────────────────────────────────────┐
+                    │         USER QUERY INPUT                │
+                    └──────────────────┬──────────────────────┘
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────────┐
+                    │     research.py (Main Function)         │
+                    │  - Initialize workflow                  │
+                    │  - Set up initial state                 │
+                    └──────────────────┬──────────────────────┘
+                                       │
+                                       ▼
+        ┌──────────────────────────────────────────────────────────┐
+        │         Agents/workflow.py (LangGraph)                    │
+        │  - Build StateGraph                                       │
+        │  - Connect agent nodes                                    │
+        │  - Compile workflow                                       │
+        └────────────────────┬─────────────────────────────────────┘
+                             │
+        ┌────────────────────┴────────────────────┐
+        │    Agent Execution Pipeline             │
+        └─────────────────────────────────────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  PLANNING    │    │   SEARCH     │    │ EXTRACTION   │
+│   AGENT      │───▶│   AGENT      │───▶│   AGENT      │
+│              │    │              │    │              │
+│ - Extract    │    │ - Google     │    │ - Scrape     │
+│   search     │    │ - Wikipedia  │    │   URLs       │
+│   terms      │    │ - Websites   │    │ - Clean text │
+└──────────────┘    └──────┬───────┘    └──────┬───────┘
+                           │                   │
+                    scrapping/              scrapping/
+                    search.py               extract.py
+                           │                   │
+        ┌──────────────────┴───────────────────┘
+        │
+        ▼
+┌──────────────────┐         ┌────────────────────┐
+│ SUMMARIZATION    │────────▶│   SAVING AGENT     │
+│     AGENT        │         │                    │
+│                  │         │  - Generate JSON   │
+│ - LLM Summary    │         │  - Generate PDF    │
+│ - Synthesize     │         │                    │
+└──────────────────┘         └─────────┬──────────┘
+        │                              │
+   LLM (Gemini)                 document_gen.py
+        │                              │
+        │                              │
+        └──────────────┬───────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │   OUTPUT FILES               │
+        │  - research_[timestamp].json │
+        │  - research_[timestamp].pdf  │
+        └─────────────────────────────┘
+
+
+DATA FLOW:
+==========
+
+1. User Query → research.py
+2. research.py → workflow.build_research_workflow()
+3. Workflow executes agents in sequence:
+   
+   a) Planning Agent:
+      - Input: query string
+      - Process: Extract search terms using LLM
+      - Output: search_terms list, websites list
+   
+   b) Search Agent:
+      - Input: query, search_terms, websites
+      - Process: 
+        * Google search (search.py)
+        * Wikipedia search (search.py)
+        * Website-specific search
+      - Output: urls_found list
+   
+   c) Extraction Agent:
+      - Input: urls_found
+      - Process: 
+        * Fetch each URL (extract.py)
+        * Parse HTML with BeautifulSoup
+        * Clean and extract text
+      - Output: content list (dicts with url, title, content)
+   
+   d) Summarization Agent:
+      - Input: query, content list
+      - Process:
+        * Prepare content text
+        * Send to LLM with prompt
+        * Generate summary
+      - Output: summary string
+   
+   e) Saving Agent:
+      - Input: all state data
+      - Process:
+        * Format data for JSON (save_to_json)
+        * Format data for PDF (save_to_pdf)
+        * Clean Unicode for PDF compatibility
+      - Output: json_path, pdf_path
+
+4. Return results to user
+
+
+MODULE DEPENDENCIES:
+===================
+
+main.py
+  └─> research.py
+       └─> Agents/workflow.py
+            └─> Agents/Agents.py
+                 ├─> Agents/agent_state.py
+                 ├─> scrapping/search.py
+                 ├─> scrapping/extract.py
+                 ├─> document_gen.py
+                 └─> langchain_google_genai (LLM)
+
+
+CONFIGURATION:
+==============
+
+.env file (in project root)
+  └─> GEMINI_API_KEY
+
+config.py
+  ├─> LLM_CONFIG (model, temperature, etc.)
+  ├─> SEARCH_CONFIG (limits, timeouts)
+  ├─> DEFAULT_WEBSITES
+  ├─> OUTPUT_CONFIG (formats, fonts)
+  └─> SUMMARY_CONFIG (length, sources)
+
+
+ERROR HANDLING:
+===============
+
+Each module has try-except blocks:
+- search.py: Handles network errors, invalid URLs
+- extract.py: Handles parsing errors, missing content
+- Agents.py: Handles empty content, LLM errors
+- document_gen.py: Handles Unicode errors, file I/O
+
+Progress logging at each step for debugging.
+"""
