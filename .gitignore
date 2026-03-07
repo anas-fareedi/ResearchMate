@@ -1,2 +1,5 @@
 /.env
 /.vscode
+/APP/__pycache__/
+/APP/Agents/__pycache__/
+/APP/scrapping/__pycache__/
