@@ -15,6 +15,7 @@ An AI-powered research assistant that automatically searches the web, extracts c
 - **Content Extraction**: Automatically extracts and cleans relevant content from web pages
 - **AI Summarization**: Uses Google Gemini to synthesize information from multiple sources
 - **Dual Output**: Generates both JSON and PDF reports with your research findings
+- **PDF Q&A (RAG)**: Ask follow-up questions on generated reports using retrieval-augmented chat
 - **Security Features**: 
   - URL validation to prevent SSRF attacks
   - Input sanitization
@@ -129,6 +130,25 @@ Results are saved to the `research_outputs/` directory:
 
 - **JSON file**: Complete data including all sources and metadata
 - **PDF file**: Formatted report with summary and source content
+
+After each run, you can start an interactive Q&A chat over the generated PDF.
+The chatbot retrieves relevant report chunks and answers using Gemini.
+
+## PDF Q&A Chat (RAG) 💬
+
+When the run finishes, the app prompts:
+
+```text
+Start Q&A chat on generated PDF? (y/n):
+```
+
+Type `y` to enter chat mode, then ask questions such as:
+
+- What are the key findings from this report?
+- Which sources discuss privacy in GAN-generated synthetic data?
+- Summarize the main limitations in 5 bullet points.
+
+Type `exit` or `quit` to end chat.
 
 ## Security Features 🔒
 

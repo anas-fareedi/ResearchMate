@@ -1,6 +1,7 @@
 import os
 import sys
 from research import research
+from qa_chat import start_pdf_qa_chat
 from utils import validate_api_key, sanitize_query, validate_websites, log_error
 from config import API_CONFIG, OUTPUT_CONFIG
 
@@ -70,6 +71,15 @@ if __name__ == "__main__":
         print(f"  JSON: {result['json_path']}")
         print(f"  PDF:  {result['pdf_path']}")
         print("\nCheck the output files for detailed research findings.")
+
+        # Optional Q&A chat over generated PDF report (RAG)
+        try:
+            start_chat = input("\nStart Q&A chat on generated PDF? (y/n): ").strip().lower()
+            if start_chat in {"y", "yes"}:
+                start_pdf_qa_chat(result['pdf_path'])
+        except Exception as e:
+            log_error(e, "Q&A chat startup prompt")
+            print(f"\n⚠️  Could not start Q&A chat: {e}")
         
     except KeyboardInterrupt:
         print("\n\nResearch interrupted by user")

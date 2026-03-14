@@ -18,3 +18,4 @@ nest-asyncio
 fpdf
 requests
 scholarly
+pypdf
