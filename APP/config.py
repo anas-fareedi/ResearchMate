@@ -8,6 +8,8 @@ load_dotenv()
 API_CONFIG = {
     "gemini_api_key": os.getenv("GEMINI_API_KEY"),
     "elsevier_api_key": os.getenv("Elsevier_API_KEY"),
+    "tavily_api_key": os.getenv("TAVILY_API_KEY"),
+    "sementic_scholar_api_key": os.getenv("SEMENTIC_SCHOLAR") or os.getenv("SEMANTIC_SCHOLAR"),
 }
 
 LLM_CONFIG = {
@@ -27,16 +29,16 @@ SEARCH_CONFIG = {
 
 DEFAULT_WEBSITES = [
     # General Knowledge
-    "https://en.wikipedia.org",
+    # "https://en.wikipedia.org",
     
     # Academic & Research
-    # "https://scholar.google.com",
-    # "https://www.researchgate.net",
-    # "https://arxiv.org",
+    "https://scholar.google.com",
+    "https://www.researchgate.net",
+    "https://arxiv.org",
     # "https://pubmed.ncbi.nlm.nih.gov",
     
     # Scientific Journals
-    "https://www.nature.com",
+    # "https://www.nature.com",
     "https://www.sciencedirect.com",
     # "https://www.science.org",
     
@@ -74,6 +76,6 @@ WEBSITE_RULES = {
 }
 RATE_LIMIT = {
     "enabled": True,
-    "requests_per_second": 2,  # Maximum requests per second
-    "delay_between_requests": 0.5  # Seconds to wait between requests
+    "requests_per_second": 1,  # Maximum requests per second
+    "delay_between_requests": 1  # Seconds to wait between requests
 }

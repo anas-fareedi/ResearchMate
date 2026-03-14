@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import validate_url, rate_limit, log_error
-from config import SEARCH_CONFIG, USER_AGENT
+from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
 
 
 @retry(
@@ -75,10 +75,43 @@ def extract_content(url: str) -> Dict:
         
         # Semantic Scholar specific extraction
         elif 'semanticscholar.org' in url:
-            # Try to find abstract or paper description
-            abstract_sections = soup.find_all(['div', 'section'], class_=lambda x: x and ('abstract' in x.lower() or 'tldr' in x.lower()))
-            for section in abstract_sections:
-                content_text += section.get_text().strip() + "\n\n"
+            # Prefer Semantic Scholar Graph API by paper ID for reliable abstract retrieval.
+            paper_id = ""
+            if '/paper/' in url:
+                paper_part = url.split('/paper/', 1)[1].strip('/')
+                if paper_part:
+                    paper_id = paper_part.split('/')[-1]
+
+            api_key = API_CONFIG.get("sementic_scholar_api_key")
+            if paper_id and api_key:
+                try:
+                    api_url = f"https://api.semanticscholar.org/graph/v1/paper/{paper_id}"
+                    api_headers = {
+                        'x-api-key': api_key,
+                        'User-Agent': USER_AGENT
+                    }
+                    params = {
+                        'fields': 'title,abstract,tldr,url'
+                    }
+                    api_response = requests.get(api_url, headers=api_headers, params=params, timeout=timeout)
+                    api_response.raise_for_status()
+                    paper = api_response.json()
+
+                    title_text = paper.get('title') or title_text
+                    abstract = (paper.get('abstract') or '').strip()
+                    tldr = (paper.get('tldr') or {}).get('text', '').strip()
+                    content_text = "\n\n".join([part for part in [abstract, tldr] if part]).strip()
+                except Exception as e:
+                    log_error(e, f"Semantic Scholar API extraction failed for {paper_id}")
+
+            # Fallback to page scraping when API content is unavailable
+            if not content_text:
+                abstract_sections = soup.find_all(
+                    ['div', 'section'],
+                    class_=lambda x: x and ('abstract' in x.lower() or 'tldr' in x.lower())
+                )
+                for section in abstract_sections:
+                    content_text += section.get_text().strip() + "\n\n"
         
         # ScienceDirect/Elsevier specific extraction
         elif 'sciencedirect.com' in url or 'doi.org' in url:

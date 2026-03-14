@@ -3,7 +3,7 @@ import sys
 
 from Agents.agent_state import ResearchState
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from scrapping.search import search_website, search_with_google, get_wikipedia_urls
+from scrapping.search import search_website, search_with_google, search_with_tavily, search_semantic_scholar, get_wikipedia_urls
 from scrapping.extract import extract_content
 from document_gen import save_to_json, save_to_pdf
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -79,6 +79,13 @@ def search_agent(state: ResearchState) -> ResearchState:
     search_terms = state.get('search_terms', [query])
     
     all_urls = []
+
+    try:
+        print("\n🔍 Trying Tavily search...")
+        tavily_urls = search_with_tavily(query, num_results=5)
+        all_urls.extend(tavily_urls)
+    except Exception as e:
+        log_error(e, "Tavily search in search_agent")
     
     try:
         print("\n🔍 Trying Google search...")
@@ -86,6 +93,13 @@ def search_agent(state: ResearchState) -> ResearchState:
         all_urls.extend(google_urls)
     except Exception as e:
         log_error(e, "Google search in search_agent")
+
+    try:
+        print("\n🔍 Querying Semantic Scholar API...")
+        semantic_urls = search_semantic_scholar(query, max_results=5)
+        all_urls.extend(semantic_urls)
+    except Exception as e:
+        log_error(e, "Semantic Scholar search in search_agent")
     
     print("\n🔍 Searching specified websites...")
     for website in websites:

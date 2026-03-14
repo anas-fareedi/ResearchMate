@@ -121,11 +121,11 @@ def search_with_google(query: str, num_results: int = 5) -> List[str]:
         search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
-        
+
         response = _fetch_with_retry(search_url, headers, timeout)
-        
+
         soup = BeautifulSoup(response.content, 'html.parser')
-        
+
         # Find search result links
         for link in soup.find_all('a', href=True):
             href = link['href']
@@ -133,17 +133,68 @@ def search_with_google(query: str, num_results: int = 5) -> List[str]:
                 # Extract actual URL from Google redirect
                 actual_url = href.split('/url?q=')[1].split('&')[0]
                 if actual_url.startswith('http') and 'google.com' not in actual_url:
-                    # Validate URL before adding
                     if validate_url(actual_url):
                         urls.append(actual_url)
                         if len(urls) >= num_results:
                             break
-        
+
         print(f"✓ Google search found {len(urls)} URLs")
     except Exception as e:
         log_error(e, "Google search failed")
         print(f"✗ Google search failed: {str(e)}")
-    
+
+    return urls
+
+
+def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
+    """
+    Use Tavily API to find relevant URLs.
+
+    Args:
+        query: Search query
+        num_results: Number of results to return
+
+    Returns:
+        List of URLs found
+    """
+    urls = []
+    api_key = API_CONFIG.get("tavily_api_key")
+
+    if not api_key:
+        return urls
+
+    try:
+        api_url = "https://api.tavily.com/search"
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT
+        }
+        payload = {
+            'api_key': api_key,
+            'query': query,
+            'search_depth': 'basic',
+            'max_results': num_results,
+            'include_answer': False,
+            'include_raw_content': False
+        }
+
+        timeout = SEARCH_CONFIG.get("request_timeout", 15)
+        response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        for item in data.get('results', []):
+            url = item.get('url')
+            if url and validate_url(url) and url not in urls:
+                urls.append(url)
+                if len(urls) >= num_results:
+                    break
+
+        print(f"✓ Tavily search found {len(urls)} URLs")
+    except Exception as e:
+        log_error(e, "Tavily search failed")
+        print(f"✗ Tavily search failed: {str(e)}")
+
     return urls
 
 
@@ -242,49 +293,80 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
 def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
     """
     Search Semantic Scholar for research papers.
-    
-    Note: This uses web scraping as API requires authentication.
-    For production, consider using Semantic Scholar API.
-    
+
+    Uses Semantic Scholar API when key is available.
+    Falls back to web scraping if API fails.
+
     Args:
         query: Search query
         max_results: Maximum number of results
-    
+
     Returns:
         List of paper URLs
     """
     urls = []
+
+    # Try official API first
+    api_key = API_CONFIG.get("sementic_scholar_api_key")
+    if api_key:
+        try:
+            api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+            headers = {
+                'x-api-key': api_key,
+                'User-Agent': USER_AGENT
+            }
+            params = {
+                'query': query,
+                'limit': max_results,
+                'fields': 'paperId,title,url'
+            }
+
+            timeout = SEARCH_CONFIG.get("request_timeout", 15)
+            response = requests.get(api_url, headers=headers, params=params, timeout=timeout)
+            response.raise_for_status()
+
+            data = response.json()
+            for paper in data.get('data', []):
+                paper_url = paper.get('url')
+                if not paper_url and paper.get('paperId'):
+                    paper_url = f"https://www.semanticscholar.org/paper/{paper['paperId']}"
+
+                if paper_url and validate_url(paper_url) and paper_url not in urls:
+                    urls.append(paper_url)
+                    if len(urls) >= max_results:
+                        break
+
+            print(f"✓ Found {len(urls)} Semantic Scholar papers (API)")
+            return urls
+        except Exception as e:
+            log_error(e, "Semantic Scholar API failed, using web fallback")
+
+    # Fallback to web search scraping
     try:
-        # Semantic Scholar search URL
         search_url = f"https://www.semanticscholar.org/search?q={query.replace(' ', '+')}&sort=relevance"
-        
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
-        
+
         response = _fetch_with_retry(search_url, headers, timeout)
         soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Find paper links - Semantic Scholar uses specific pattern
-        # Look for links that contain '/paper/'
+
         for link in soup.find_all('a', href=True):
             href = link['href']
             if '/paper/' in href and not href.startswith('#'):
                 full_url = urljoin('https://www.semanticscholar.org', href)
-                
-                # Remove fragment
                 parsed = urlparse(full_url)
                 full_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                
+
                 if validate_url(full_url) and full_url not in urls:
                     urls.append(full_url)
                     if len(urls) >= max_results:
                         break
-        
+
         print(f"✓ Found {len(urls)} Semantic Scholar papers")
     except Exception as e:
         log_error(e, "Semantic Scholar search failed")
         print(f"✗ Semantic Scholar search failed: {str(e)}")
-    
+
     return urls
 
 

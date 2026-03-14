@@ -9,6 +9,9 @@ An AI-powered research assistant that automatically searches the web, extracts c
 - **Academic API Integration**: 
   - ArXiv API for open-access preprints
   - Elsevier API for ScienceDirect and Scopus (requires free API key)
+  - Semantic Scholar Graph API (with API key)
+- **Web Search API Integration**:
+  - Tavily API for reliable web result discovery
 - **Content Extraction**: Automatically extracts and cleans relevant content from web pages
 - **AI Summarization**: Uses Google Gemini to synthesize information from multiple sources
 - **Dual Output**: Generates both JSON and PDF reports with your research findings
@@ -39,14 +42,18 @@ An AI-powered research assistant that automatically searches the web, extracts c
    Edit `.env` and add your API keys:
    ```
    GEMINI_API_KEY=your_gemini_key_here
+  TAVILY_API_KEY=your_tavily_key_here
+  SEMENTIC_SCHOLAR=your_semantic_scholar_key_here
    Elsevier_API_KEY=your_elsevier_key_here  # Optional but recommended
    ```
    
    **Get your API keys:**
    - Gemini API: https://makersuite.google.com/app/apikey
+  - Tavily API: https://app.tavily.com/
+  - Semantic Scholar API: https://www.semanticscholar.org/product/api
    - Elsevier API: https://dev.elsevier.com/ (free, for ScienceDirect/Scopus)
    
-   **Note**: Elsevier API is optional but highly recommended for academic research.
+  **Note**: `TAVILY_API_KEY` and `SEMENTIC_SCHOLAR` improve search quality and coverage. Elsevier API remains optional.
 
 ## Usage 🚀
 
