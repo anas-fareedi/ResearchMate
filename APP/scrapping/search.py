@@ -2,6 +2,7 @@ import sys
 import os
 from typing import List
 import requests
+import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -23,6 +24,28 @@ def _fetch_with_retry(url: str, headers: dict, timeout: int) -> requests.Respons
     response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response
+
+
+def _clean_discovered_url(raw_url: str) -> str:
+    """Normalize noisy URL values returned by external APIs/search pages."""
+    if not raw_url:
+        return ""
+
+    text = str(raw_url).strip()
+
+    elsevier_match = re.search(
+        r"https?://api\.elsevier\.com/content/abstract/scopus_id/\d+",
+        text,
+        re.IGNORECASE
+    )
+    if elsevier_match:
+        return elsevier_match.group(0)
+
+    url_match = re.search(r"https?://[^\s<>\"]+", text, re.IGNORECASE)
+    if not url_match:
+        return ""
+
+    return url_match.group(0).rstrip(".,);]")
 
 
 def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
@@ -395,7 +418,7 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
             for entry in entries[:max_results]:
                 # Try to get ScienceDirect URL
                 if 'prism:url' in entry:
-                    url = entry['prism:url']
+                    url = _clean_discovered_url(entry['prism:url'])
                     if validate_url(url):
                         urls.append(url)
                 
@@ -410,10 +433,19 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
                 elif 'link' in entry:
                     for link in entry['link']:
                         if link.get('@ref') == 'scopus':
-                            scopus_url = link.get('@href')
+                            scopus_url = _clean_discovered_url(link.get('@href'))
                             if scopus_url and validate_url(scopus_url):
                                 urls.append(scopus_url)
                                 break
+                
+                # Fallback: construct Elsevier abstract endpoint from dc:identifier
+                elif 'dc:identifier' in entry:
+                    identifier = str(entry.get('dc:identifier', ''))
+                    id_match = re.search(r"SCOPUS_ID:(\d+)", identifier, re.IGNORECASE)
+                    if id_match:
+                        abstract_url = f"https://api.elsevier.com/content/abstract/scopus_id/{id_match.group(1)}"
+                        if validate_url(abstract_url):
+                            urls.append(abstract_url)
         
         print(f"✓ Found {len(urls)} Elsevier/ScienceDirect papers")
         

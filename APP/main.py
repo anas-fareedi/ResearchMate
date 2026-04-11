@@ -57,7 +57,8 @@ if __name__ == "__main__":
         print("This will find actual research papers with abstracts.\n")
         
         result = research(
-            query="synthetic data generation using GANs",
+            # query="synthetic data generation using GANs",
+            query="web3 and decentralized applications in healthcare",
             websites=[
                 "https://www.arxiv.org",
                 "https://www.sciencedirect.com",    
