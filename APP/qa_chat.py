@@ -72,6 +72,7 @@ class PDFRAGChatbot:
         self.llm = ChatGoogleGenerativeAI(
             model=LLM_CONFIG["model"],
             temperature=0.2,
+            max_output_tokens=LLM_CONFIG["max_tokens"],
             google_api_key=gemini_api_key,
         )
 
@@ -107,12 +108,9 @@ class PDFRAGChatbot:
         )
 
         prompt = (
-            "You are a research report Q&A assistant. "
-            "Answer ONLY using the provided PDF context. "
-            "If context is insufficient, clearly say so.\n\n"
-            f"Question: {question}\n\n"
-            f"Context:\n{context}\n\n"
-            "Provide a concise, accurate answer."
+            "Answer from context only. If missing, say insufficient context.\n"
+            f"Q: {question}\n"
+            f"Context:\n{context}"
         )
 
         response = self.llm.invoke([HumanMessage(content=prompt)])

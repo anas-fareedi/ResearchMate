@@ -1,8 +1,9 @@
-# Research Assistant 🔍
-
-## tool = https://www.ivorymind.com/
+# Research Assistant 
 
 An AI-powered research assistant that automatically searches the web, extracts content, and generates comprehensive summaries using Google's Gemini AI.
+
+
+## tool for performing local RAG like operations https://www.ivorymind.com/
 
 ## Features ✨
 

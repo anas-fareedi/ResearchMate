@@ -2,6 +2,7 @@ import sys
 import os
 from typing import List
 import requests
+import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -25,6 +26,28 @@ def _fetch_with_retry(url: str, headers: dict, timeout: int) -> requests.Respons
     return response
 
 
+def _clean_discovered_url(raw_url: str) -> str:
+    """Normalize noisy URL values returned by external APIs/search pages."""
+    if not raw_url:
+        return ""
+
+    text = str(raw_url).strip()
+
+    elsevier_match = re.search(
+        r"https?://api\.elsevier\.com/content/abstract/scopus_id/\d+",
+        text,
+        re.IGNORECASE
+    )
+    if elsevier_match:
+        return elsevier_match.group(0)
+
+    url_match = re.search(r"https?://[^\s<>\"]+", text, re.IGNORECASE)
+    if not url_match:
+        return ""
+
+    return url_match.group(0).rstrip(".,);]")
+
+
 def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
     """
     Search a website for content related to the query.
@@ -38,7 +61,7 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
     Returns:
         List of URLs found
     """
-    # Validate website URL
+   
     if not validate_url(website):
         log_error(ValueError(f"Invalid website URL: {website}"), "search_website")
         return []
@@ -55,7 +78,6 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
     
     urls = []
     try:
-        # Add query parameter to the website URL
         search_url = f"{website}/search?q={query.replace(' ', '+')}"
         
         headers = {'User-Agent': USER_AGENT}
@@ -66,14 +88,13 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
         soup = BeautifulSoup(response.content, 'html.parser')
         links = soup.find_all('a', href=True)
         
-        for link in links[:max_results * 3]:  # Get more, filter later
+        for link in links[:max_results * 3]:  
             href = link['href']
             
             # Skip fragment URLs (anchors on same page)
             if href.startswith('#'):
                 continue
             
-            # Make absolute URL
             full_url = urljoin(website, href)
             
             # Remove fragment from URL if present
@@ -82,7 +103,6 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
             if parsed.query:
                 full_url += f"?{parsed.query}"
             
-            # Validate URL before adding
             if not validate_url(full_url):
                 continue
             
@@ -137,23 +157,19 @@ def search_with_google(query: str, num_results: int = 5) -> List[str]:
                         urls.append(actual_url)
                         if len(urls) >= num_results:
                             break
-
         print(f"✓ Google search found {len(urls)} URLs")
     except Exception as e:
         log_error(e, "Google search failed")
         print(f"✗ Google search failed: {str(e)}")
-
     return urls
 
 
 def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
     """
     Use Tavily API to find relevant URLs.
-
     Args:
         query: Search query
         num_results: Number of results to return
-
     Returns:
         List of URLs found
     """
@@ -162,7 +178,6 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
 
     if not api_key:
         return urls
-
     try:
         api_url = "https://api.tavily.com/search"
         headers = {
@@ -194,23 +209,19 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
     except Exception as e:
         log_error(e, "Tavily search failed")
         print(f"✗ Tavily search failed: {str(e)}")
-
     return urls
 
 
 def get_wikipedia_urls(query: str) -> List[str]:
     """
     Generate Wikipedia URLs for a query.
-    
     Args:
         query: Search query
-    
     Returns:
         List of Wikipedia URLs
     """
     urls = []
     try:
-        # Create Wikipedia-friendly search term
         search_term = query.replace(' ', '_')
         
         wiki_url = f"https://en.wikipedia.org/wiki/{search_term}"
@@ -225,7 +236,6 @@ def get_wikipedia_urls(query: str) -> List[str]:
             urls.append(wiki_url)
             print(f"✓ Found Wikipedia article: {wiki_url}")
         else:
-            # Try search results
             response = _fetch_with_retry(search_url, headers, timeout)
             soup = BeautifulSoup(response.content, 'html.parser')
             
@@ -241,24 +251,20 @@ def get_wikipedia_urls(query: str) -> List[str]:
     except Exception as e:
         log_error(e, "Wikipedia search failed")
         print(f"✗ Wikipedia search failed: {str(e)}")
-    
     return urls
 
 
 def search_arxiv(query: str, max_results: int = 5) -> List[str]:
     """
     Search ArXiv for research papers using their API.
-    
     Args:
         query: Search query
         max_results: Maximum number of results
-    
     Returns:
         List of ArXiv paper URLs
     """
     urls = []
     try:
-        # Use ArXiv API
         api_url = f"http://export.arxiv.org/api/query?search_query=all:{query.replace(' ', '+')}&start=0&max_results={max_results}"
         
         headers = {'User-Agent': USER_AGENT}
@@ -286,27 +292,23 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
     except Exception as e:
         log_error(e, "ArXiv search failed")
         print(f"✗ ArXiv search failed: {str(e)}")
-    
     return urls
 
 
 def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
     """
     Search Semantic Scholar for research papers.
-
     Uses Semantic Scholar API when key is available.
     Falls back to web scraping if API fails.
-
     Args:
         query: Search query
         max_results: Maximum number of results
-
     Returns:
         List of paper URLs
     """
     urls = []
 
-    # Try official API first
+
     api_key = API_CONFIG.get("sementic_scholar_api_key")
     if api_key:
         try:
@@ -320,7 +322,6 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                 'limit': max_results,
                 'fields': 'paperId,title,url'
             }
-
             timeout = SEARCH_CONFIG.get("request_timeout", 15)
             response = requests.get(api_url, headers=headers, params=params, timeout=timeout)
             response.raise_for_status()
@@ -335,7 +336,6 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                     urls.append(paper_url)
                     if len(urls) >= max_results:
                         break
-
             print(f"✓ Found {len(urls)} Semantic Scholar papers (API)")
             return urls
         except Exception as e:
@@ -366,7 +366,6 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
     except Exception as e:
         log_error(e, "Semantic Scholar search failed")
         print(f"✗ Semantic Scholar search failed: {str(e)}")
-
     return urls
 
 
@@ -376,26 +375,21 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
     
     Requires Elsevier_API_KEY in environment variables.
     API Documentation: https://dev.elsevier.com/
-    
     Args:
         query: Search query
         max_results: Maximum number of results
-    
     Returns:
         List of ScienceDirect article URLs
     """
     urls = []
     
-    # Check if API key is available
     api_key = API_CONFIG.get("elsevier_api_key")
     if not api_key:
-        print("⚠️  Elsevier API key not found. Set Elsevier_API_KEY in .env file")
+        print("  Elsevier API key not found. Set Elsevier_API_KEY in .env file")
         print("   Get your key from: https://dev.elsevier.com/")
         return urls
     
     try:
-        # Use Scopus Search API to find articles
-        # API endpoint for searching
         api_url = "https://api.elsevier.com/content/search/scopus"
         
         headers = {
@@ -403,13 +397,11 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
             'Accept': 'application/json',
             'User-Agent': USER_AGENT
         }
-        
         params = {
             'query': query,
             'count': max_results,
             'field': 'dc:identifier,dc:title,prism:doi,prism:url,eid'
         }
-        
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
         
         response = _fetch_with_retry(
@@ -417,7 +409,6 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
             headers,
             timeout
         )
-        
         data = response.json()
         
         # Extract article URLs from response
@@ -427,7 +418,7 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
             for entry in entries[:max_results]:
                 # Try to get ScienceDirect URL
                 if 'prism:url' in entry:
-                    url = entry['prism:url']
+                    url = _clean_discovered_url(entry['prism:url'])
                     if validate_url(url):
                         urls.append(url)
                 
@@ -442,10 +433,19 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
                 elif 'link' in entry:
                     for link in entry['link']:
                         if link.get('@ref') == 'scopus':
-                            scopus_url = link.get('@href')
+                            scopus_url = _clean_discovered_url(link.get('@href'))
                             if scopus_url and validate_url(scopus_url):
                                 urls.append(scopus_url)
                                 break
+                
+                # Fallback: construct Elsevier abstract endpoint from dc:identifier
+                elif 'dc:identifier' in entry:
+                    identifier = str(entry.get('dc:identifier', ''))
+                    id_match = re.search(r"SCOPUS_ID:(\d+)", identifier, re.IGNORECASE)
+                    if id_match:
+                        abstract_url = f"https://api.elsevier.com/content/abstract/scopus_id/{id_match.group(1)}"
+                        if validate_url(abstract_url):
+                            urls.append(abstract_url)
         
         print(f"✓ Found {len(urls)} Elsevier/ScienceDirect papers")
         

@@ -9,7 +9,6 @@ from Agents.Agents import planning_agent, search_agent, extraction_agent, summar
 def build_research_workflow():
     """
     Build the LangGraph workflow for research assistant.
-    
     Creates a sequential workflow with the following stages:
     1. Planning - Analyze query and extract search terms
     2. Searching - Find relevant URLs from websites
@@ -37,7 +36,5 @@ def build_research_workflow():
     workflow.add_edge("summarization", "saving")
     workflow.add_edge("saving", END)
     
-    # Compile and return the workflow
     app = workflow.compile()
-    
     return app

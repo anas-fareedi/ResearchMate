@@ -57,7 +57,8 @@ if __name__ == "__main__":
         print("This will find actual research papers with abstracts.\n")
         
         result = research(
-            query="synthetic data generation using GANs",
+            # query="synthetic data generation using GANs",
+            query="web3 and decentralized applications in healthcare",
             websites=[
                 "https://www.arxiv.org",
                 "https://www.sciencedirect.com",    
@@ -79,7 +80,7 @@ if __name__ == "__main__":
                 start_pdf_qa_chat(result['pdf_path'])
         except Exception as e:
             log_error(e, "Q&A chat startup prompt")
-            print(f"\n⚠️  Could not start Q&A chat: {e}")
+            print(f"\n  Could not start Q&A chat: {e}")
         
     except KeyboardInterrupt:
         print("\n\nResearch interrupted by user")
@@ -93,14 +94,3 @@ if __name__ == "__main__":
         print("3. Some academic sites may block automated access")
         print("4. Try with Wikipedia-only queries first")
         sys.exit(1)
-
-
-# Academic sites that work well:
-# - ArXiv: Research papers with abstracts
-# - Wikipedia: General knowledge articles
-# - Nature.com: Scientific journals (may have paywalls)
-# 
-# Sites that may not work well:
-# - Google Scholar: Blocks automated scraping
-# - JSTOR: Requires authentication
-# - Semantic Scholar: Rate limits apply
