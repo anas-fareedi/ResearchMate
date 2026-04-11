@@ -22,14 +22,14 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
     Raises:
         ValueError: If query is invalid
     """
-    # Sanitize and validate input
+
     try:
         query = sanitize_query(query)
     except ValueError as e:
         log_error(e, "Query validation failed")
         raise
     
-    # Validate websites if provided
+   
     if websites:
         validated_websites = validate_websites(websites)
         if not validated_websites:
@@ -46,7 +46,6 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
     
     try:
         app = build_research_workflow()
-        
         initial_state = {
             'query': query,
             'websites': websites,

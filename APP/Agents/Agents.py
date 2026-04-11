@@ -1,6 +1,3 @@
-import os
-import sys
-
 from Agents.agent_state import ResearchState
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from scrapping.search import search_website, search_with_google, search_with_tavily, search_semantic_scholar, get_wikipedia_urls
@@ -8,20 +5,23 @@ from scrapping.extract import extract_content
 from document_gen import save_to_json, save_to_pdf
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+
+import os
+import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 from config import API_CONFIG, LLM_CONFIG, DEFAULT_WEBSITES
 from utils import validate_api_key, log_error
 
-# Validate and get API key
 GEMINI_API_KEY = validate_api_key(API_CONFIG["gemini_api_key"], "GEMINI_API_KEY")
 
-# Initialize LLM with config
 llm = ChatGoogleGenerativeAI(
     model=LLM_CONFIG["model"],
     temperature=LLM_CONFIG["temperature"],
     google_api_key=GEMINI_API_KEY
 )
+
 
 # Agent Nodes
 
@@ -36,7 +36,6 @@ def planning_agent(state: ResearchState) -> ResearchState:
         prompt = f"""You are a research planning assistant. Analyze this research query and extract 3-5 key search terms that would be most effective for finding relevant information.
 
 Query: {query}
-
 Provide ONLY a comma-separated list of search terms, nothing else."""
         
         response = llm.invoke([HumanMessage(content=prompt)])
@@ -45,7 +44,6 @@ Provide ONLY a comma-separated list of search terms, nothing else."""
         # Filter out empty terms
         search_terms = [term for term in search_terms if term]
         
-        # Use provided websites or default ones
         websites = state.get('websites', DEFAULT_WEBSITES)
         
         print(f"✓ Planning complete. Search terms: {search_terms}")
@@ -60,7 +58,6 @@ Provide ONLY a comma-separated list of search terms, nothing else."""
         }
     except Exception as e:
         log_error(e, "planning_agent")
-        # Fallback: use the query itself as search term
         return {
             **state,
             'search_terms': [query],
@@ -81,27 +78,27 @@ def search_agent(state: ResearchState) -> ResearchState:
     all_urls = []
 
     try:
-        print("\n🔍 Trying Tavily search...")
+        print("\n Trying Tavily search...")
         tavily_urls = search_with_tavily(query, num_results=5)
         all_urls.extend(tavily_urls)
     except Exception as e:
         log_error(e, "Tavily search in search_agent")
     
     try:
-        print("\n🔍 Trying Google search...")
+        print("\n Trying Google search...")
         google_urls = search_with_google(query, num_results=5)
         all_urls.extend(google_urls)
     except Exception as e:
         log_error(e, "Google search in search_agent")
 
     try:
-        print("\n🔍 Querying Semantic Scholar API...")
+        print("\n Trying Semantic Scholar API...")
         semantic_urls = search_semantic_scholar(query, max_results=5)
         all_urls.extend(semantic_urls)
     except Exception as e:
         log_error(e, "Semantic Scholar search in search_agent")
     
-    print("\n🔍 Searching specified websites...")
+    print("\n Trying specified websites...")
     for website in websites:
         try:
             urls = search_website(website, query, max_results=3)
@@ -110,12 +107,11 @@ def search_agent(state: ResearchState) -> ResearchState:
             log_error(e, f"Website search for {website}")
             continue
     
-    # Deduplicate
     all_urls = list(set(all_urls))
     
-    # If still no URLs, try Wikipedia directly
+    
     if len(all_urls) == 0:
-        print("\n🔍 No URLs found, trying Wikipedia directly...")
+        print("\n No URLs found, trying Wikipedia directly...")
         try:
             wiki_urls = get_wikipedia_urls(query)
             all_urls.extend(wiki_urls)
@@ -138,7 +134,7 @@ def extraction_agent(state: ResearchState) -> ResearchState:
     urls = state['urls_found']
     
     if not urls:
-        print("\n⚠️  No URLs to extract from")
+        print("\n No URLs to extract from")
         return {
             **state,
             'content': [],
@@ -148,7 +144,7 @@ def extraction_agent(state: ResearchState) -> ResearchState:
     from config import SEARCH_CONFIG
     max_urls = SEARCH_CONFIG.get("max_total_urls", 10)
     
-    print(f"\n📄 Extracting content from {min(len(urls), max_urls)} URLs...")
+    print(f"\n Extracting content from {min(len(urls), max_urls)} URLs...")
     
     content = []
     for i, url in enumerate(urls[:max_urls], 1):
@@ -181,26 +177,22 @@ def summarization_agent(state: ResearchState) -> ResearchState:
     query = state['query']
     content = state['content']
     
-    print(f"\n📝 Generating AI summary from {len(content)} sources...")
+    print(f"\nGenerating AI summary from {len(content)} sources...")
     
-    # Check if we have content
     if not content or len(content) == 0:
         summary = f"""Unable to extract sufficient content from the searched websites. 
 
 Query: {query}
-
 This could be due to:
 - Websites blocking automated access
 - Network connectivity issues
-- The query being too specific or unusual
 
 Suggestions:
 - Try a more general query
 - Specify different websites
-- Check your internet connection
 
 Note: The research assistant successfully completed all steps but couldn't retrieve enough content to generate a comprehensive summary."""
-        print("⚠️  No content available for summarization")
+        print("  No content available for summarization")
         
         return {
             **state,
@@ -209,8 +201,8 @@ Note: The research assistant successfully completed all steps but couldn't retri
             'messages': state.get('messages', [])
         }
     
+    # Prepare content for summarization
     try:
-        # Prepare content for summarization
         from config import SUMMARY_CONFIG
         max_sources = SUMMARY_CONFIG.get("max_sources_to_summarize", 5)
         max_content_per_source = SUMMARY_CONFIG.get("max_content_per_source", 1000)
@@ -219,17 +211,14 @@ Note: The research assistant successfully completed all steps but couldn't retri
             f"Source {i+1}: {item['title']}\nURL: {item['url']}\n{item['content'][:max_content_per_source]}"
             for i, item in enumerate(content[:max_sources])
         ])
-        
         summary_length = SUMMARY_CONFIG.get("summary_length", "300-500 words")
         
         prompt = f"""You are a research assistant. Based on the following content extracted from various sources, provide a comprehensive summary that answers this research query.
 
 Query: {query}
-
 Extracted Content from {len(content)} sources:
 
 {content_text}
-
 Provide a well-structured summary ({summary_length}) that:
 1. Directly answers the research query
 2. Synthesizes information from multiple sources
@@ -237,7 +226,6 @@ Provide a well-structured summary ({summary_length}) that:
 4. Is clear and informative
 
 Summary:"""
-        
         response = llm.invoke([HumanMessage(content=prompt)])
         summary = response.content
         print(f"✓ Summarization complete ({len(summary)} characters)")
@@ -250,7 +238,6 @@ Summary:"""
         }
     except Exception as e:
         log_error(e, "summarization_agent")
-        # Fallback: create a basic summary
         summary = f"Research query: {query}\n\nFound {len(content)} sources but encountered an error during summarization. Please check the extracted content in the output files."
         return {
             **state,
@@ -295,7 +282,7 @@ def saving_agent(state: ResearchState) -> ResearchState:
     if json_path and pdf_path:
         print(f"✓ All files saved successfully")
     elif json_path or pdf_path:
-        print(f"⚠️  Partial save: Some files could not be saved")
+        print(f"  Partial save: Some files could not be saved")
     else:
         print(f"✗ Failed to save output files")
     

@@ -4,11 +4,11 @@ from fpdf import FPDF
 from typing import Dict
 from datetime import datetime
 import json
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from config import OUTPUT_CONFIG
 from utils import ensure_output_directory, log_error
+
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 OUTPUT_DIR = ensure_output_directory(OUTPUT_CONFIG.get("directory", "research_outputs"))
 
@@ -130,7 +130,6 @@ def save_to_pdf(data: Dict, query: str, summary: str) -> str:
         pdf = PDFReport()
         pdf.add_page()
         
-        # Configure from settings
         font = OUTPUT_CONFIG.get("pdf_font", "Arial")
         font_size = OUTPUT_CONFIG.get("pdf_font_size", 11)
         
