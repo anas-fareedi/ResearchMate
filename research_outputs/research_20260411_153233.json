@@ -1,0 +1,42 @@
+{
+  "query": "AI in healthcare",
+  "timestamp": "20260411_153233",
+  "data": {
+    "query": "AI in healthcare",
+    "search_terms": [
+      "AI in healthcare"
+    ],
+    "websites_searched": [
+      "https://scholar.google.com",
+      "https://www.researchgate.net",
+      "https://arxiv.org",
+      "https://www.sciencedirect.com"
+    ],
+    "urls_found": [
+      "http://arxiv.org/abs/2003.07678v3",
+      "http://arxiv.org/abs/2501.02842v1",
+      "http://arxiv.org/abs/2603.28944v1"
+    ],
+    "content": [
+      {
+        "url": "http://arxiv.org/abs/2003.07678v3",
+        "title": "An Overview and Case Study of the Clinical AI Model Development Life Cycle for Healthcare Systems",
+        "content": "Abstract:Healthcare is one of the most promising areas for machine learning models to make a positive impact. However, successful adoption of AI-based systems in healthcare depends on engaging and educating stakeholders from diverse backgrounds about the development process of AI models. We present a broadly accessible overview of the development life cycle of clinical AI models that is general enough to be adapted to most machine learning projects, and then give an in-depth case study of the development process of a deep learning based system to detect aortic aneurysms in Computed Tomography (CT) exams. We hope other healthcare institutions and clinical practitioners find the insights we share about the development process useful in informing their own model development efforts and to increase the likelihood of successful deployment and integration of AI in healthcare.",
+        "extracted_at": "2026-04-11T15:32:29.790692"
+      },
+      {
+        "url": "http://arxiv.org/abs/2501.02842v1",
+        "title": "Foundations of GenIR",
+        "content": "Abstract:The chapter discusses the foundational impact of modern generative AI models on information access (IA) systems. In contrast to traditional AI, the large-scale training and superior data modeling of generative AI models enable them to produce high-quality, human-like responses, which brings brand new opportunities for the development of IA paradigms. In this chapter, we identify and introduce two of them in details, i.e., information generation and information synthesis. Information generation allows AI to create tailored content addressing user needs directly, enhancing user experience with immediate, relevant outputs. Information synthesis leverages the ability of generative AI to integrate and reorganize existing information, providing grounded responses and mitigating issues like model hallucination, which is particularly valuable in scenarios requiring precision and external knowledge. This chapter delves into the foundational aspects of generative models, including architecture, scaling, and training, and discusses their applications in multi-modal scenarios. Additionally, it examines the retrieval-augmented generation paradigm and other methods for corpus modeling and understanding, demonstrating how generative AI can enhance information access systems. It also summarizes potential challenges and fruitful directions for future studies.",
+        "extracted_at": "2026-04-11T15:32:31.153638"
+      },
+      {
+        "url": "http://arxiv.org/abs/2603.28944v1",
+        "title": "AI prediction leads people to forgo guaranteed rewards",
+        "content": "Abstract:Artificial intelligence (AI) is understood to affect the content of people's decisions. Here, using a behavioral implementation of the classic Newcomb's paradox in 1,305 participants, we show that AI can also change how people decide. In this paradigm, belief in predictive authority can lead individuals to constrain decision-making, forgoing a guaranteed reward. Over 40% of participants treated AI as such a predictive authority. This significantly increased the odds of forgoing the guaranteed reward by a factor of 3.39 (95% CI: 2.45-4.70) compared with random framing, and reduced earnings by 10.7-42.9%. The effect appeared across AI presentations and decision contexts and persisted even when predictions failed. When people believe AI can predict their behavior, they may self-constrain it in anticipation of that prediction.",
+        "extracted_at": "2026-04-11T15:32:32.468851"
+      }
+    ],
+    "summary": "Research query: AI in healthcare\n\nFound 3 sources but encountered an error during summarization. Please check the extracted content in the output files."
+  }
+}

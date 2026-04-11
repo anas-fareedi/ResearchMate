@@ -1,0 +1,42 @@
+{
+  "query": "synthetic data",
+  "timestamp": "20260411_153320",
+  "data": {
+    "query": "synthetic data",
+    "search_terms": [
+      "synthetic data"
+    ],
+    "websites_searched": [
+      "https://scholar.google.com",
+      "https://www.researchgate.net",
+      "https://arxiv.org",
+      "https://www.sciencedirect.com"
+    ],
+    "urls_found": [
+      "http://arxiv.org/abs/2005.07866v1",
+      "http://arxiv.org/abs/2311.17453v1",
+      "http://arxiv.org/abs/1907.02664v2"
+    ],
+    "content": [
+      {
+        "url": "http://arxiv.org/abs/2005.07866v1",
+        "title": "Byzantine-Resilient SGD in High Dimensions on Heterogeneous Data",
+        "content": "Abstract:We study distributed stochastic gradient descent (SGD) in the master-worker architecture under Byzantine attacks. We consider the heterogeneous data model, where different workers may have different local datasets, and we do not make any probabilistic assumptions on data generation. At the core of our algorithm, we use the polynomial-time outlier-filtering procedure for robust mean estimation proposed by Steinhardt et al. (ITCS 2018) to filter-out corrupt gradients. In order to be able to apply their filtering procedure in our {\\em heterogeneous} data setting where workers compute {\\em stochastic} gradients, we derive a new matrix concentration result, which may be of independent interest.\nWe provide convergence analyses for smooth strongly-convex and non-convex objectives. We derive our results under the bounded variance assumption on local stochastic gradients and a {\\em deterministic} condition on datasets, namely, gradient dissimilarity; and for both these quantities, we provide concrete bounds in the statistical heterogeneous data model. We give a trade-off between the mini-batch size for stochastic gradients and the approximation error. Our algorithm can tolerate up to $\\frac{1}{4}$ fraction Byzantine workers. It can find approximate optimal parameters in the strongly-convex setting exponentially fast and reach to an approximate stationary point in the non-convex setting with a linear speed, thus, matching the convergence rates of vanilla SGD in the Byzantine-free setting.\nWe also propose and analyze a Byzantine-resilient SGD algorithm with gradient compression, where workers send $k$ random coordinates of their gradients. Under mild conditions, we show a $\\frac{d}{k}$-factor saving in communication bits as well as decoding complexity over our compression-free algorithm without affecting its convergence rate (order-wise) and the approximation error.",
+        "extracted_at": "2026-04-11T15:33:17.113575"
+      },
+      {
+        "url": "http://arxiv.org/abs/2311.17453v1",
+        "title": "Privacy Measurement in Tabular Synthetic Data: State of the Art and Future Research Directions",
+        "content": "Abstract:Synthetic data (SD) have garnered attention as a privacy enhancing technology. Unfortunately, there is no standard for quantifying their degree of privacy protection. In this paper, we discuss proposed quantification approaches. This contributes to the development of SD privacy standards; stimulates multi-disciplinary discussion; and helps SD researchers make informed modeling and evaluation decisions.",
+        "extracted_at": "2026-04-11T15:33:19.159196"
+      },
+      {
+        "url": "http://arxiv.org/abs/1907.02664v2",
+        "title": "Data Encoding for Byzantine-Resilient Distributed Optimization",
+        "content": "Abstract:We study distributed optimization in the presence of Byzantine adversaries, where both data and computation are distributed among $m$ worker machines, $t$ of which may be corrupt. The compromised nodes may collaboratively and arbitrarily deviate from their pre-specified programs, and a designated (master) node iteratively computes the model/parameter vector for generalized linear models. In this work, we primarily focus on two iterative algorithms: Proximal Gradient Descent (PGD) and Coordinate Descent (CD). Gradient descent (GD) is a special case of these algorithms. PGD is typically used in the data-parallel setting, where data is partitioned across different samples, whereas, CD is used in the model-parallelism setting, where data is partitioned across the parameter space.\nIn this paper, we propose a method based on data encoding and error correction over real numbers to combat adversarial attacks. We can tolerate up to $t\\leq \\lfloor\\frac{m-1}{2}\\rfloor$ corrupt worker nodes, which is information-theoretically optimal. We give deterministic guarantees, and our method does not assume any probability distribution on the data. We develop a {\\em sparse} encoding scheme which enables computationally efficient data encoding and decoding. We demonstrate a trade-off between the corruption threshold and the resource requirements (storage, computational, and communication complexity). As an example, for $t\\leq\\frac{m}{3}$, our scheme incurs only a {\\em constant} overhead on these resources, over that required by the plain distributed PGD/CD algorithms which provide no adversarial protection. To the best of our knowledge, ours is the first paper that makes CD secure against adversarial attacks.\nOur encoding scheme extends efficiently to the data streaming model and for stochastic gradient descent (SGD). We also give experimental results to show the efficacy of our proposed schemes.",
+        "extracted_at": "2026-04-11T15:33:19.946647"
+      }
+    ],
+    "summary": "Research query: synthetic data\n\nFound 3 sources but encountered an error during summarization. Please check the extracted content in the output files."
+  }
+}
