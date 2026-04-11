@@ -1,10 +1,10 @@
 import os
 import sys
 
-from APP.Agents.agent_state import ResearchState
+from Agents.agent_state import ResearchState
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from APP.scrapping.search import search_website, search_with_google, search_with_tavily, search_semantic_scholar, get_wikipedia_urls
-from APP.scrapping.extract import extract_content
+from scrapping.search import search_website, search_with_google, search_with_tavily, search_semantic_scholar, get_wikipedia_urls
+from scrapping.extract import extract_content
 from document_gen import save_to_json, save_to_pdf
 from langchain_google_genai import ChatGoogleGenerativeAI
 

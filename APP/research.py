@@ -1,9 +1,9 @@
 import os
 import sys
 from typing import List, Dict, Optional
-from app.Agents.workflow import build_research_workflow
-from app.utils import sanitize_query, validate_websites, log_error
-from app.config import DEFAULT_WEBSITES
+from Agents.workflow import build_research_workflow
+from utils import sanitize_query, validate_websites, log_error
+from config import DEFAULT_WEBSITES
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

@@ -7,8 +7,8 @@ from pypdf import PdfReader
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 
-from app.config import API_CONFIG, LLM_CONFIG
-from app.utils import validate_api_key, log_error
+from config import API_CONFIG, LLM_CONFIG
+from utils import validate_api_key, log_error
 
 
 @dataclass

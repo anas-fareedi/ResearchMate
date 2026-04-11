@@ -2,8 +2,8 @@ import os
 import sys
 from research import research
 from qa_chat import start_pdf_qa_chat
-from app.utils import validate_api_key, sanitize_query, validate_websites, log_error
-from app.config import API_CONFIG, OUTPUT_CONFIG
+from utils import validate_api_key, sanitize_query, validate_websites, log_error
+from config import API_CONFIG, OUTPUT_CONFIG
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

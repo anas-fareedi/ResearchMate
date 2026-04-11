@@ -1,7 +1,38 @@
 /.env
-/.vscode
-/APP/__pycache__/
-/APP/Agents/__pycache__/
-/APP/scrapping/__pycache__/
-/APP/research_outputs/*
-Reasech_assistant/Frontend/ai-research-ui/node_modules/*
+/.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Backend outputs
+/APP/research_outputs/
+/research_outputs/
+
+# Frontend / Node
+node_modules/
+/Frontend/ai-research-ui/node_modules/
+/Frontend/ai-research-ui/dist/
+/Frontend/ai-research-ui/dist-ssr/
+/Frontend/ai-research-ui/*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor and OS files
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
