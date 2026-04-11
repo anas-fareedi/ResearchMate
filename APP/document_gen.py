@@ -107,6 +107,22 @@ def clean_text_for_pdf(text: str) -> str:
     return text
 
 
+def _has_meaningful_content(item: Dict) -> bool:
+    """Return True when a source item has usable extracted content for PDF output."""
+    title = (item.get('title') or '').strip().lower()
+    content = (item.get('content') or '').strip()
+
+    if not content:
+        return False
+    if title.startswith('error'):
+        return False
+    if content.lower().startswith('failed to extract'):
+        return False
+    if content.lower().startswith('url validation failed'):
+        return False
+    return True
+
+
 def save_to_pdf(data: Dict, query: str, summary: str) -> str:
     """
     Save research data to PDF file.
@@ -143,7 +159,9 @@ def save_to_pdf(data: Dict, query: str, summary: str) -> str:
         # Content from each source
         pdf.chapter_title('Sources and Content')
         
-        for item in data.get('content', []):
+        valid_sources = [item for item in data.get('content', []) if _has_meaningful_content(item)]
+
+        for item in valid_sources:
             pdf.set_font(font, 'B', 11)
             title = clean_text_for_pdf(item.get('title', 'N/A'))
             pdf.cell(0, 8, f"Title: {title}", 0, 1)
@@ -156,6 +174,10 @@ def save_to_pdf(data: Dict, query: str, summary: str) -> str:
             content = clean_text_for_pdf(item.get('content', 'No content')[:800])
             pdf.multi_cell(0, 5, content)
             pdf.ln(3)
+
+        if not valid_sources:
+            pdf.set_font(font, '', 10)
+            pdf.multi_cell(0, 5, "No valid source content was available to include in this section.")
         
         pdf.output(filepath)
         print(f"✓ PDF saved: {filepath}")
