@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 
 ai-research-ui/node_modules/*
+ai-research-ui\node_modules\flatted\es.js
+ai-research-ui\node_modules\flatted\esm.js
