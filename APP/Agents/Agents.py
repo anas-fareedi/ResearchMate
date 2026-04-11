@@ -19,6 +19,7 @@ GEMINI_API_KEY = validate_api_key(API_CONFIG["gemini_api_key"], "GEMINI_API_KEY"
 llm = ChatGoogleGenerativeAI(
     model=LLM_CONFIG["model"],
     temperature=LLM_CONFIG["temperature"],
+    max_output_tokens=LLM_CONFIG["max_tokens"],
     google_api_key=GEMINI_API_KEY
 )
 
@@ -33,10 +34,11 @@ def planning_agent(state: ResearchState) -> ResearchState:
     query = state['query']
     
     try:
-        prompt = f"""You are a research planning assistant. Analyze this research query and extract 3-5 key search terms that would be most effective for finding relevant information.
-
-Query: {query}
-Provide ONLY a comma-separated list of search terms, nothing else."""
+        prompt = (
+            "Extract 3-5 key search terms for this query. "
+            "Return only comma-separated terms.\n"
+            f"Query: {query}"
+        )
         
         response = llm.invoke([HumanMessage(content=prompt)])
         search_terms = [term.strip() for term in response.content.split(',')]
@@ -213,19 +215,12 @@ Note: The research assistant successfully completed all steps but couldn't retri
         ])
         summary_length = SUMMARY_CONFIG.get("summary_length", "300-500 words")
         
-        prompt = f"""You are a research assistant. Based on the following content extracted from various sources, provide a comprehensive summary that answers this research query.
-
-Query: {query}
-Extracted Content from {len(content)} sources:
-
-{content_text}
-Provide a well-structured summary ({summary_length}) that:
-1. Directly answers the research query
-2. Synthesizes information from multiple sources
-3. Highlights key findings and insights
-4. Is clear and informative
-
-Summary:"""
+        prompt = (
+            f"Summarize the content to answer the query in {summary_length}. "
+            "Synthesize across sources and include key findings.\n"
+            f"Query: {query}\n\n"
+            f"Sources:\n{content_text}"
+        )
         response = llm.invoke([HumanMessage(content=prompt)])
         summary = response.content
         print(f"✓ Summarization complete ({len(summary)} characters)")

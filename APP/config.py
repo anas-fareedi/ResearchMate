@@ -15,7 +15,7 @@ API_CONFIG = {
 LLM_CONFIG = {
     "model": "gemini-2.5-flash",  
     "temperature": 0.3,  
-    "max_tokens": 2048
+    "max_tokens": 1024
 }
 
 SEARCH_CONFIG = {
@@ -59,9 +59,9 @@ OUTPUT_CONFIG = {
 }
 
 SUMMARY_CONFIG = {
-    "max_sources_to_summarize": 5,  # Number of sources to include in summary
-    "max_content_per_source": 1000,  # Characters per source for summarization
-    "summary_length": "300-500 words",  # Target summary length
+    "max_sources_to_summarize": 3,  # Number of sources to include in summary
+    "max_content_per_source": 700,  # Characters per source for summarization
+    "summary_length": "180-250 words",  # Target summary length
 }
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
