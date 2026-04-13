@@ -2,15 +2,17 @@
 
 /* ── Custom Theme ─────────────────────────────────────── */
 @theme {
-  --color-surface-50: #0a0a0f;
-  --color-surface-100: #12121a;
-  --color-surface-200: #1a1a26;
-  --color-surface-300: #252535;
-  --color-surface-400: #35354a;
+  /* Surface palette: 50 is dark background, higher numbers are lighter colors for borders/text */
+  --color-surface-50: #09090b;   /* deeply dark background */
+  --color-surface-100: #18181b;  /* slightly lighter elements */
+  --color-surface-200: #27272a;  /* card backgrounds / elevated surfaces */
+  --color-surface-300: #3f3f46;  /* borders and dividers */
+  --color-surface-400: #a1a1aa;  /* muted text, readable against 50-200 */
+  --color-surface-500: #e4e4e7;  /* bright text */
 
-  --color-accent-400: #7c5cfc;
-  --color-accent-500: #6c47f0;
-  --color-accent-600: #5b35de;
+  --color-accent-400: #818cf8;   /* softer indigo for better contrast */
+  --color-accent-500: #6366f1;   /* primary indigo */
+  --color-accent-600: #4f46e5;
 
   --color-cyan-400: #22d3ee;
   --color-cyan-500: #06b6d4;
