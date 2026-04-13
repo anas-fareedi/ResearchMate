@@ -34,11 +34,25 @@ class QueryRequest(BaseModel):
     query: str
     websites: Optional[List[str]] = None
 
+class QARequest(BaseModel):
+    pdf_path: str
+    question: str
+
 
 @app.post("/research")
 def run_research(request: QueryRequest):
     result = research(request.query, request.websites)
     return result
+
+@app.post("/qa")
+def run_qa(request: QARequest):
+    try:
+        from qa_chat import PDFRAGChatbot
+        bot = PDFRAGChatbot(request.pdf_path)
+        answer = bot.ask(request.question)
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 _OUTPUT_DIR = (Path(__file__).resolve().parent.parent / "research_outputs").resolve()
 

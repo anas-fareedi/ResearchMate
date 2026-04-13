@@ -1,72 +1,36 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState, useEffect } from "react";
 import Header from "./components/Header";
 import SearchInput from "./components/SearchInput";
 import EmptyState from "./components/EmptyState";
 import LoadingSkeleton from "./components/LoadingSkeleton";
 import ResultsList from "./components/ResultsList";
 import ErrorBanner from "./components/ErrorBanner";
-import { postResearch } from "./services/api";
+import QAChat from "./components/QAChat";
+import { useResearch } from "./hooks/useResearch";
 
 /**
  * App – root layout. Orchestrates state between components.
  */
 export default function App() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [error, setError] = useState(null);
+  const { query, results, isLoading, hasSearched, error, fetchResearch } = useResearch();
+  
+  // Try to find the first valid PDF path from the results to power the Q&A chat
+  const [activePdfPath, setActivePdfPath] = useState(null);
 
-  const handleSearch = useCallback(async (q) => {
-    setQuery(q);
-    setResults([]);
-    setError(null);
-    setIsLoading(true);
-    setHasSearched(true);
-
-    try {
-      const data = await postResearch(q);
-
-      // Convert backend response to frontend format map
-      let formattedResult = [];
-      if (Array.isArray(data)) {
-         formattedResult = data.map((item, idx) => ({
-            title: item.title || `Research Result ${idx + 1}`,
-            summary: item.summary || item.text || "No summary provided by the API.",
-            tags: item.tags || ["AI", "Research"],
-            confidence: item.confidence || 95,
-            source: item.pdf_path
-  ? `http://127.0.0.1:8000/download-pdf?path=${encodeURIComponent(item.pdf_path)}`
-  : item.source || "Unknown source",
-         }));
-      } else {
-         formattedResult = [
-          {
-            title: data.title || "Research Summary",
-            summary: data.summary || data.text || "No summary provided by the API.",
-            tags: data.tags || ["AI", "Research"],
-            confidence: data.confidence || 95,
-            source: data.pdf_path
-  ? `http://127.0.0.1:8000/download-pdf?path=${encodeURIComponent(data.pdf_path)}`
-  : data.source || "Unknown source",
-          }
-        ];
-      }
-
-      setResults(formattedResult);
-    } catch (err) {
-      console.error("Error:", err);
-      setError(err.message || "Failed to reach the research API. Ensure the backend is running.");
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (results && results.length > 0) {
+      const firstWithPdf = results.find((r) => r.pdfPath);
+      setActivePdfPath(firstWithPdf ? firstWithPdf.pdfPath : null);
+    } else {
+      setActivePdfPath(null);
     }
-  }, []);
+  }, [results]);
 
   const handleSuggestion = useCallback(
     (s) => {
-      handleSearch(s);
+      fetchResearch(s);
     },
-    [handleSearch]
+    [fetchResearch]
   );
 
   return (
@@ -80,7 +44,7 @@ export default function App() {
       <Header />
 
       {/* Main content */}
-      <main className="relative z-10 mx-auto flex max-w-2xl flex-col items-center px-6 pt-32 pb-20">
+      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center px-6 pt-32 pb-20">
         {/* Hero area — only shown before first search */}
         {!hasSearched && (
           <div className="mb-8 text-center animate-fade-in">
@@ -90,7 +54,7 @@ export default function App() {
                 Research
               </span>
             </h2>
-            <p className="max-w-md text-base text-surface-400/80 leading-relaxed">
+            <p className="max-w-md mx-auto text-base text-surface-400/80 leading-relaxed">
               Instantly explore, synthesise, and understand the latest in
               artificial intelligence research.
             </p>
@@ -98,21 +62,43 @@ export default function App() {
         )}
 
         {/* Search bar — always visible */}
-        <div className="w-full mb-10">
-          <SearchInput onSubmit={handleSearch} isLoading={isLoading} />
+        <div className="w-full mb-10 max-w-2xl mx-auto">
+          <SearchInput onSubmit={fetchResearch} isLoading={isLoading} />
         </div>
 
         {/* Dynamic content area */}
-        {!hasSearched && <EmptyState onSuggestionClick={handleSuggestion} />}
-        {error && (
-          <div className="w-full mb-6">
-            <ErrorBanner message={error} onRetry={() => handleSearch(query)} />
-          </div>
-        )}
-        {isLoading && <LoadingSkeleton />}
-        {!isLoading && !error && results.length > 0 && (
-          <ResultsList results={results} query={query} />
-        )}
+        <div className="w-full transition-all">
+          {!hasSearched && (
+            <div className="max-w-2xl mx-auto">
+              <EmptyState onSuggestionClick={handleSuggestion} />
+            </div>
+          )}
+          {error && (
+            <div className="w-full mb-6 max-w-2xl mx-auto">
+              <ErrorBanner message={error} onRetry={() => fetchResearch(query)} />
+            </div>
+          )}
+          {isLoading && (
+            <div className="max-w-2xl mx-auto">
+              <LoadingSkeleton />
+            </div>
+          )}
+          {!isLoading && !error && results.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
+              {/* Left Column: Research Results */}
+              <div className={`col-span-1 border border-surface-300/30 rounded-xl bg-surface-100/50 backdrop-blur-sm p-6 shadow-xl ${activePdfPath ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
+                <ResultsList results={results} query={query} />
+              </div>
+
+              {/* Right Column: Q&A Chat widget */}
+              {activePdfPath && (
+                <div className="col-span-1 lg:col-span-4 sticky top-24">
+                  <QAChat pdfPath={activePdfPath} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </main>
 
       {/* Footer */}

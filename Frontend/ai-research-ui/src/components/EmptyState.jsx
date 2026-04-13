@@ -1,8 +1,10 @@
+import { memo } from "react";
+
 /**
  * EmptyState – shown before any query is made.
  * Features animated background orbs and suggestion chips.
  */
-export default function EmptyState({ onSuggestionClick }) {
+const EmptyState = memo(({ onSuggestionClick }) => {
   const suggestions = [
     "Explain transformer attention mechanisms",
     "Compare GPT-4 vs Claude on reasoning",
@@ -60,4 +62,8 @@ export default function EmptyState({ onSuggestionClick }) {
       </div>
     </div>
   );
-}
+});
+
+EmptyState.displayName = "EmptyState";
+
+export default EmptyState;

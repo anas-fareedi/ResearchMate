@@ -30,3 +30,28 @@ export async function postResearch(query) {
 
   return res.json();
 }
+
+/**
+ * POST /qa
+ *
+ * @param   {string}  pdfPath  – The path of the generated PDF
+ * @param   {string}  question - The user's question about the PDF
+ * @returns {Promise<{ answer: string }>}
+ * @throws  {Error}   on network / server errors
+ */
+export async function postQA(pdfPath, question) {
+  const res = await fetch(`${BASE_URL}/qa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pdf_path: pdfPath, question }),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    throw new Error(
+      `QA API returned ${res.status}${errorBody ? `: ${errorBody}` : ""}`
+    );
+  }
+
+  return res.json();
+}
