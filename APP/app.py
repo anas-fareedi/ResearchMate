@@ -1,17 +1,16 @@
-
-import os
-from pathlib import Path
-
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from fastapi.responses import FileResponse
 from typing import List, Optional
 from research import research
 
-app = FastAPI()
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+app = FastAPI()
+
+import os
+from pathlib import Path
 load_dotenv()
 
 _raw_allowed_origins = os.getenv(
@@ -37,6 +36,15 @@ class QueryRequest(BaseModel):
 class QARequest(BaseModel):
     pdf_path: str
     question: str
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to the Research API"}
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.post("/research")
