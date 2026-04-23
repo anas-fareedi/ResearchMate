@@ -7,7 +7,6 @@ langgraph
 httpx
 aiofiles
 beautifulsoup4
-lxml
 tenacity
 google-generativeai
 fpdf
@@ -17,5 +16,5 @@ firebase-admin
 python-json-logger
 gunicorn
 fastapi
-uvicorn[standard]
+uvicorn
 python-multipart
