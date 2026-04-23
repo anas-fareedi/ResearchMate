@@ -1,0 +1,13 @@
+version: 1.0
+runtime: python311
+build:
+  commands:
+    build:
+      - pip install --upgrade pip
+      - pip install -r requirements.txt
+run:
+  command: gunicorn -c APP/gunicorn_conf.py APP.app:app
+  network:
+    port: 8080
+    env:
+      ENVIRONMENT: production
