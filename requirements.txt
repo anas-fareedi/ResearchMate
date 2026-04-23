@@ -18,11 +18,10 @@ google-generativeai
 nest-asyncio
 fpdf
 requests
-scholarly
 pypdf
 firebase-admin
 python-json-logger
 gunicorn
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
