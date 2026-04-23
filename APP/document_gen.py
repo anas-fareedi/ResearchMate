@@ -99,11 +99,23 @@ def clean_text_for_pdf(text: str) -> str:
         text = text.replace(unicode_char, ascii_char)
     
     # Remove any remaining non-latin-1 characters
+    # Bug #12 – If text still has non-latin-1 characters after the replacement
+    # table, encode with 'replace' so that *every* replacement becomes a visible
+    # '?' and we also emit a WARNING rather than silently mangling the text.
     try:
         text.encode('latin-1')
     except UnicodeEncodeError:
-        # If still problematic, keep only printable ASCII
-        text = ''.join(char if ord(char) < 256 else '?' for char in text)
+        original_length = len(text)
+        # Replace each un-encodable character with '?'
+        text = text.encode('latin-1', errors='replace').decode('latin-1')
+        replaced_count = sum(1 for c in text if c == '?')
+        if replaced_count:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "clean_text_for_pdf: %d non-Latin-1 character(s) replaced with '?' "
+                "(original length %d). Consider switching to a Unicode-capable PDF font.",
+                replaced_count, original_length,
+            )
     return text
 
 

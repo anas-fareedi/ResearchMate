@@ -1,15 +1,15 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from parent directory (project root)
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # API Configuration
 API_CONFIG = {
     "gemini_api_key": os.getenv("GEMINI_API_KEY"),
     "elsevier_api_key": os.getenv("Elsevier_API_KEY"),
     "tavily_api_key": os.getenv("TAVILY_API_KEY"),
-    "sementic_scholar_api_key": os.getenv("SEMENTIC_SCHOLAR") or os.getenv("SEMANTIC_SCHOLAR"),
+    "semantic_scholar_api_key": os.getenv("SEMANTIC_SCHOLAR"),
 }
 
 LLM_CONFIG = {

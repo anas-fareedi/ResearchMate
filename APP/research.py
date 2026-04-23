@@ -41,7 +41,10 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
         websites = DEFAULT_WEBSITES
     
     print(f"\n{'='*60}")
-    print(f"Starting Research: {query}")
+    # Bug #15 – truncate the query in log output so PII is not written
+    # verbatim to stdout / any downstream log aggregation system.
+    log_query = (query[:77] + "...") if len(query) > 80 else query
+    print(f"Starting Research: {log_query}")
     print(f"{'='*60}\n")
     
     try:
@@ -66,7 +69,11 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
         print(f"{'='*60}")
         print(f"JSON: {result['json_path']}")
         print(f"PDF: {result['pdf_path']}")
-        print(f"\nSummary:\n{result['summary'][:200]}...")
+        # Bug #16 – use textwrap.shorten for a unicode-safe, word-boundary
+        # aware preview instead of a raw character-index slice.
+        from textwrap import shorten as _shorten
+        summary_preview = _shorten(result['summary'], width=200, placeholder="...")
+        print(f"\nSummary:\n{summary_preview}")
         
         return {
             'json_path': result['json_path'],

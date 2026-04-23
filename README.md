@@ -48,7 +48,7 @@ An AI-powered research assistant that automatically searches the web, extracts c
    ```
    GEMINI_API_KEY=your_gemini_key_here
   TAVILY_API_KEY=your_tavily_key_here
-  SEMENTIC_SCHOLAR=your_semantic_scholar_key_here
+  SEMANTIC_SCHOLAR=your_semantic_scholar_key_here
    Elsevier_API_KEY=your_elsevier_key_here  # Optional but recommended
    ```
    
@@ -58,7 +58,7 @@ An AI-powered research assistant that automatically searches the web, extracts c
   - Semantic Scholar API: https://www.semanticscholar.org/product/api
    - Elsevier API: https://dev.elsevier.com/ (free, for ScienceDirect/Scopus)
    
-  **Note**: `TAVILY_API_KEY` and `SEMENTIC_SCHOLAR` improve search quality and coverage. Elsevier API remains optional.
+**Note**: `TAVILY_API_KEY` and `SEMANTIC_SCHOLAR` improve search quality and coverage. Elsevier API remains optional.
 
 ## Usage 🚀
 
@@ -115,6 +115,28 @@ Edit `APP/config.py` to customize:
 - **Search Settings**: Max URLs, timeouts, content length
 - **Output Settings**: File formats, PDF styling
 - **Rate Limiting**: Requests per second, retry attempts
+
+### Firebase (Optional for Cloud PDF Persistence)
+
+To store generated and uploaded PDFs in Firebase (Storage + Firestore), set:
+
+```env
+FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+FIREBASE_SERVICE_ACCOUNT_PATH=/absolute/path/to/serviceAccountKey.json
+```
+
+Alternative to path-based credentials:
+
+```env
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+```
+
+When configured, the API supports:
+
+- `POST /research`: generates local output and also saves generated PDF metadata to Firestore.
+- `POST /upload-pdf`: upload an external PDF for persistent storage and Q&A.
+- `GET /documents`: list previously saved PDFs.
+- `POST /qa`: ask questions using either local `pdf_path` or Firebase `document_id`.
 
 ## Architecture 🏗️
 

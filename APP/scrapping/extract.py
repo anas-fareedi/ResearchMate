@@ -161,7 +161,7 @@ def extract_content(url: str) -> Dict:
                 paper_part = normalized_url.split('/paper/', 1)[1].strip('/')
                 if paper_part:
                     paper_id = paper_part.split('/')[-1]
-            api_key = API_CONFIG.get("sementic_scholar_api_key")
+            api_key = API_CONFIG.get("semantic_scholar_api_key")
             if paper_id and api_key:
                 try:
                     api_url = f"https://api.semanticscholar.org/graph/v1/paper/{paper_id}"

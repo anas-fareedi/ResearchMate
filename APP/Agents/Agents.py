@@ -86,7 +86,7 @@ def search_agent(state: ResearchState) -> ResearchState:
         print("\n Trying Tavily search...")
         tavily_urls = search_with_tavily(query, num_results=5)
         all_urls.extend(tavily_urls)
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         log_error(e, "Tavily search in search_agent")
     
     try:

@@ -1,4 +1,7 @@
 /.env
+/.env.local
+/.env.*.local
+.env/
 /.vscode/
 
 # Python
@@ -36,3 +39,7 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase credentials
+*firebase-adminsdk*.json
+serviceAccountKey.json

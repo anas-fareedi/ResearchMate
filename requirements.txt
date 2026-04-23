@@ -19,3 +19,4 @@ fpdf
 requests
 scholarly
 pypdf
+firebase-admin

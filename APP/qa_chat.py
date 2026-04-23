@@ -77,6 +77,15 @@ class PDFRAGChatbot:
         )
 
     def _load_chunks(self, pdf_path: str) -> List[TextChunk]:
+        # Bug #11 – reject files that are too large before reading all pages into RAM.
+        MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
+        file_size = os.path.getsize(pdf_path)
+        if file_size > MAX_PDF_BYTES:
+            raise ValueError(
+                f"PDF file is too large for Q&A ({file_size / 1_048_576:.1f} MB). "
+                f"Limit is 50 MB."
+            )
+
         reader = PdfReader(pdf_path)
         all_text: List[str] = []
         for page in reader.pages:

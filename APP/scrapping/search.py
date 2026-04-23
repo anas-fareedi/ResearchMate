@@ -3,6 +3,7 @@ import os
 from typing import List
 import requests
 import re
+import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -206,6 +207,12 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
                     break
 
         print(f"✓ Tavily search found {len(urls)} URLs")
+    except (requests.RequestException, requests.ConnectionError) as e:
+        log_error(e, "Tavily API request failed")
+        print(f"✗ Tavily search API error: {str(e)}")
+    except ValueError as e:
+        log_error(e, "Tavily response parsing error")
+        print(f"✗ Tavily response parse error: {str(e)}")
     except Exception as e:
         log_error(e, "Tavily search failed")
         print(f"✗ Tavily search failed: {str(e)}")
@@ -248,6 +255,9 @@ def get_wikipedia_urls(query: str) -> List[str]:
                         urls.append(full_url)
             
             print(f"✓ Found {len(urls)} Wikipedia URLs from search")
+    except (requests.RequestException, requests.ConnectionError, requests.Timeout) as e:
+        log_error(e, "Wikipedia HTTP request failed")
+        print(f"✗ Wikipedia request error: {str(e)}")
     except Exception as e:
         log_error(e, "Wikipedia search failed")
         print(f"✗ Wikipedia search failed: {str(e)}")
@@ -271,24 +281,37 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
         
         response = _fetch_with_retry(api_url, headers, timeout)
-        soup = BeautifulSoup(response.content, 'xml')
         
-        # Extract paper IDs from feed
-        entries = soup.find_all('entry')
+        # Use ElementTree for safer XML parsing
+        try:
+            root = ET.fromstring(response.content)
+        except ET.ParseError as xml_error:
+            log_error(xml_error, "ArXiv XML parse error")
+            print(f"✗ Failed to parse ArXiv XML response: {str(xml_error)}")
+            return urls
+        
+        # Extract paper entries - use namespace-aware parsing
+        namespace = {'': 'http://www.w3.org/2005/Atom'}
+        entries = root.findall('.//entry', namespace) if root.tag.endswith('feed') else root.findall('.//entry')
+        
         for entry in entries[:max_results]:
-            # Get the paper ID
-            id_tag = entry.find('id')
-            if id_tag:
-                paper_url = id_tag.text.strip()
+            # Get the paper ID safely
+            id_elem = entry.find('id')
+            if id_elem is not None and id_elem.text:
+                paper_url = id_elem.text.strip()
                 # Convert API URL to web URL
                 if 'arxiv.org/abs/' in paper_url:
                     urls.append(paper_url)
-                elif 'arxiv.org/api/' in paper_url:
+                elif 'arxiv.org/' in paper_url:
                     # Extract arxiv ID and create proper URL
                     arxiv_id = paper_url.split('/')[-1]
-                    urls.append(f"https://arxiv.org/abs/{arxiv_id}")
+                    if arxiv_id:
+                        urls.append(f"https://arxiv.org/abs/{arxiv_id}")
         
         print(f"✓ Found {len(urls)} ArXiv papers")
+    except ET.ParseError as e:
+        log_error(e, "ArXiv XML parsing failed")
+        print(f"✗ ArXiv XML parsing failed: {str(e)}")
     except Exception as e:
         log_error(e, "ArXiv search failed")
         print(f"✗ ArXiv search failed: {str(e)}")
@@ -309,7 +332,7 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
     urls = []
 
 
-    api_key = API_CONFIG.get("sementic_scholar_api_key")
+    api_key = API_CONFIG.get("semantic_scholar_api_key")
     if api_key:
         try:
             api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -338,8 +361,10 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                         break
             print(f"✓ Found {len(urls)} Semantic Scholar papers (API)")
             return urls
-        except Exception as e:
-            log_error(e, "Semantic Scholar API failed, using web fallback")
+        except (requests.RequestException, requests.Timeout) as e:
+            log_error(e, "Semantic Scholar API request failed, using web fallback")
+        except ValueError as e:
+            log_error(e, "Semantic Scholar API response parsing error, using web fallback")
 
     # Fallback to web search scraping
     try:
@@ -363,6 +388,9 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                         break
 
         print(f"✓ Found {len(urls)} Semantic Scholar papers")
+    except (requests.RequestException, requests.Timeout) as e:
+        log_error(e, "Semantic Scholar web search request failed")
+        print(f"✗ Semantic Scholar request error: {str(e)}")
     except Exception as e:
         log_error(e, "Semantic Scholar search failed")
         print(f"✗ Semantic Scholar search failed: {str(e)}")
