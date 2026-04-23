@@ -1,5 +1,6 @@
 python-dotenv
 pydantic
+pydantic-settings
 langchain
 langchain-google-genai
 langchain-community
@@ -20,3 +21,8 @@ requests
 scholarly
 pypdf
 firebase-admin
+python-json-logger
+gunicorn
+fastapi
+uvicorn
+python-multipart

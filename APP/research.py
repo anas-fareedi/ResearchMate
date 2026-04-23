@@ -1,11 +1,13 @@
 import os
 import sys
+
+# Must be before any local imports so Python can find the APP/ package
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from typing import List, Dict, Optional
 from Agents.workflow import build_research_workflow
-from utils import sanitize_query, validate_websites, log_error
+from utils import sanitize_query, validate_websites, log_error, logger
 from config import DEFAULT_WEBSITES
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def research(query: str, websites: Optional[List[str]] = None) -> Dict:
@@ -33,19 +35,17 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
     if websites:
         validated_websites = validate_websites(websites)
         if not validated_websites:
-            print("WARNING: No valid websites provided, using defaults")
+            logger.warning("No valid websites provided, using defaults")
             websites = DEFAULT_WEBSITES
         else:
             websites = validated_websites
     else:
         websites = DEFAULT_WEBSITES
     
-    print(f"\n{'='*60}")
     # Bug #15 – truncate the query in log output so PII is not written
     # verbatim to stdout / any downstream log aggregation system.
     log_query = (query[:77] + "...") if len(query) > 80 else query
-    print(f"Starting Research: {log_query}")
-    print(f"{'='*60}\n")
+    logger.info(f"Starting Research: {log_query}")
     
     try:
         app = build_research_workflow()
@@ -64,16 +64,15 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
         
         result = app.invoke(initial_state)
         
-        print(f"\n{'='*60}")
-        print(f"Research Complete!")
-        print(f"{'='*60}")
-        print(f"JSON: {result['json_path']}")
-        print(f"PDF: {result['pdf_path']}")
+        logger.info("Research Complete!", extra={
+            "json_path": result['json_path'],
+            "pdf_path": result['pdf_path']
+        })
         # Bug #16 – use textwrap.shorten for a unicode-safe, word-boundary
         # aware preview instead of a raw character-index slice.
         from textwrap import shorten as _shorten
         summary_preview = _shorten(result['summary'], width=200, placeholder="...")
-        print(f"\nSummary:\n{summary_preview}")
+        logger.info(f"Summary preview: {summary_preview}")
         
         return {
             'json_path': result['json_path'],

@@ -1,5 +1,9 @@
 import os
 import sys
+import requests
+
+# Ensure parent directory is on the path before any local imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from Agents.agent_state import ResearchState
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -7,13 +11,6 @@ from scrapping.search import search_website, search_with_google, search_with_tav
 from scrapping.extract import extract_content
 from document_gen import save_to_json, save_to_pdf
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
 from config import API_CONFIG, LLM_CONFIG, DEFAULT_WEBSITES
 from utils import validate_api_key, log_error
 

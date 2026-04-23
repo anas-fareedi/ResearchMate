@@ -25,7 +25,6 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import firebase_admin
-from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -34,11 +33,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from qa_chat import PDFRAGChatbot
 from research import research
+from config import settings
+from utils import logger
 
 # ---------------------------------------------------------------------------
-# Load .env from project root
+# Load .env from project root is handled by pydantic-settings in config.py
 # ---------------------------------------------------------------------------
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # ---------------------------------------------------------------------------
 # Bug #1 – _OUTPUT_DIR defined HERE, at the top, before any function uses it.
@@ -52,10 +52,7 @@ _OUTPUT_DIR = (Path(__file__).resolve().parent.parent / "research_outputs").reso
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Research Assistant API", version="1.0.0")
 
-_raw_allowed_origins = os.getenv(
-    "CORS_ALLOW_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173"
-)
+_raw_allowed_origins = settings.CORS_ALLOW_ORIGINS
 _allowed_origins = [o.strip() for o in _raw_allowed_origins.split(",") if o.strip()]
 if not _allowed_origins:
     _allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -121,13 +118,10 @@ def _extract_project_from_db_url(db_url: Optional[str]) -> Optional[str]:
 
 
 def _firebase_config() -> Dict[str, Optional[str]]:
-    service_account_path = (
-        os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
-        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    )
-    service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+    service_account_path = settings.FIREBASE_SERVICE_ACCOUNT_PATH
+    service_account_json = settings.FIREBASE_SERVICE_ACCOUNT_JSON
 
-    project_id = os.getenv("FIREBASE_PROJECT_ID")
+    project_id = settings.FIREBASE_PROJECT_ID
     if not project_id and service_account_json:
         try:
             project_id = json.loads(service_account_json).get("project_id")
@@ -143,12 +137,11 @@ def _firebase_config() -> Dict[str, Optional[str]]:
 
     if not project_id:
         project_id = _extract_project_from_db_url(
-            os.getenv("FIREBASE_DATABASE_URL") or os.getenv("db_url")
+            settings.FIREBASE_DATABASE_URL or settings.db_url
         )
 
     storage_bucket = (
-        os.getenv("FIREBASE_STORAGE_BUCKET")
-        or os.getenv("FIREBASE_BUCKET")
+        settings.FIREBASE_STORAGE_BUCKET
         or (f"{project_id}.appspot.com" if project_id else None)
     )
 
@@ -186,28 +179,12 @@ def _init_firebase():
         bucket_client = storage.bucket()
         return db_client, bucket_client
     except Exception as exc:
-        print(f"WARNING: Firebase init failed: {exc}")
+        logger.warning("Firebase init failed", exc_info=exc)
         return None, None
 
 
 db, bucket = _init_firebase()
 
-
-def _ensure_firebase_ready():
-    if db is None or bucket is None:
-        cfg = _firebase_config()
-        has_path = bool(cfg["service_account_path"])
-        has_json = bool(cfg["service_account_json"])
-        has_bucket = bool(cfg["storage_bucket"])
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Firebase is not configured. Set FIREBASE_STORAGE_BUCKET (or FIREBASE_BUCKET) and "
-                "service account credentials via FIREBASE_SERVICE_ACCOUNT_PATH / "
-                "GOOGLE_APPLICATION_CREDENTIALS / FIREBASE_SERVICE_ACCOUNT_JSON. "
-                f"Detected: has_bucket={has_bucket}, has_path={has_path}, has_json={has_json}."
-            ),
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +212,7 @@ def _save_pdf_to_firebase(file_path: str, filename: str, metadata: Optional[Dict
                 blob.make_public()
                 download_url = blob.public_url
             except Exception as public_err:
-                print(f"INFO: make_public failed ({public_err}), trying signed URL.")
+                logger.info("make_public failed, trying signed URL.", exc_info=public_err)
                 try:
                     download_url = blob.generate_signed_url(
                         version="v4", expiration=timedelta(days=365)
@@ -245,7 +222,7 @@ def _save_pdf_to_firebase(file_path: str, filename: str, metadata: Optional[Dict
                     download_url = (
                         f"https://storage.googleapis.com/{bucket.name}/{storage_path}"
                     )
-                    print(f"INFO: Signed URL failed ({sign_err}), using plain GCS URL.")
+                    logger.info("Signed URL failed, using plain GCS URL.", exc_info=sign_err)
 
             # Firestore record — note we store SERVER_TIMESTAMP only in Firestore.
             # Bug #2 – do NOT put SERVER_TIMESTAMP into the response dict; it is a
@@ -272,9 +249,15 @@ def _save_pdf_to_firebase(file_path: str, filename: str, metadata: Optional[Dict
             return result
 
         except Exception as exc:
-            print(f"WARNING: Firebase upload failed ({exc}), falling back to local storage")
+            logger.warning("Firebase upload failed, falling back to local storage if not in production", exc_info=exc)
 
     # ── Fallback: local disk ──────────────────────────────────────────────
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(
+            status_code=500,
+            detail="Firebase upload failed and local fallback is disabled in production environment"
+        )
+
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     local_path = _OUTPUT_DIR / f"{doc_id}_{safe_filename}"
     shutil.copy(file_path, local_path)
@@ -311,7 +294,7 @@ def _download_document_pdf(document_id: str) -> str:
                         return tmp.name
                     except Exception as dl_err:
                         os.unlink(tmp.name)
-                        print(f"WARNING: Firebase download failed ({dl_err}), trying local.")
+                        logger.warning("Firebase download failed, trying local.", exc_info=dl_err)
         except Exception:
             pass  # fall through to local
 
@@ -478,9 +461,11 @@ def list_documents(limit: int = Query(default=50, ge=1, le=200)):
                 items.append(payload)
             return DocumentListResponse(documents=items)
         except Exception as exc:
-            print(f"WARNING: Firestore fetch failed ({exc}), falling back to local storage")
+            logger.warning("Firestore fetch failed, falling back to local storage if not in production", exc_info=exc)
 
     # ── Fallback: local disk ──────────────────────────────────────────────
+    if settings.ENVIRONMENT.lower() == "production":
+        return DocumentListResponse(documents=[])
     if _OUTPUT_DIR.exists():
         for pdf_file in _OUTPUT_DIR.glob("*.pdf"):
             # Bug #8 – only treat the prefix as a document_id when it looks like

@@ -20,9 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     retry=retry_if_exception_type((requests.RequestException, ConnectionError))
 )
 @rate_limit
-def _fetch_with_retry(url: str, headers: dict, timeout: int) -> requests.Response:
+def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
     """Fetch URL with retry logic and rate limiting."""
-    response = requests.get(url, headers=headers, timeout=timeout)
+    response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
     response.raise_for_status()
     return response
 
@@ -172,8 +172,7 @@ def extract_content(url: str) -> Dict:
                     params = {
                         'fields': 'title,abstract,tldr,url'
                     }
-                    api_response = requests.get(api_url, headers=api_headers, params=params, timeout=timeout)
-                    api_response.raise_for_status()
+                    api_response = _fetch_with_retry(api_url, api_headers, timeout, params=params)
                     paper = api_response.json()
 
                     title_text = paper.get('title') or title_text

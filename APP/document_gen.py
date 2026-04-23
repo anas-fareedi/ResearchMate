@@ -5,7 +5,7 @@ from typing import Dict
 from datetime import datetime
 import json
 from config import OUTPUT_CONFIG
-from utils import ensure_output_directory, log_error
+from utils import ensure_output_directory, log_error, logger
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -66,7 +66,7 @@ def save_to_json(data: Dict, query: str) -> str:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(output, f, indent=json_indent, ensure_ascii=False)
         
-        print(f"✓ JSON saved: {filepath}")
+        logger.info(f"JSON saved: {filepath}")
         return filepath
     except Exception as e:
         log_error(e, "save_to_json")
@@ -192,7 +192,7 @@ def save_to_pdf(data: Dict, query: str, summary: str) -> str:
             pdf.multi_cell(0, 5, "No valid source content was available to include in this section.")
         
         pdf.output(filepath)
-        print(f"✓ PDF saved: {filepath}")
+        logger.info(f"PDF saved: {filepath}")
         return filepath
     except Exception as e:
         log_error(e, "save_to_pdf")

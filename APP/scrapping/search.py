@@ -20,9 +20,9 @@ from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
     retry=retry_if_exception_type((requests.RequestException, ConnectionError))
 )
 @rate_limit
-def _fetch_with_retry(url: str, headers: dict, timeout: int) -> requests.Response:
+def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
     """Fetch URL with retry logic and rate limiting."""
-    response = requests.get(url, headers=headers, timeout=timeout)
+    response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
     response.raise_for_status()
     return response
 
@@ -195,8 +195,7 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
         }
 
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
-        response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
-        response.raise_for_status()
+        response = _fetch_with_retry(api_url, headers, timeout, method='POST', json=payload)
 
         data = response.json()
         for item in data.get('results', []):
@@ -346,8 +345,7 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                 'fields': 'paperId,title,url'
             }
             timeout = SEARCH_CONFIG.get("request_timeout", 15)
-            response = requests.get(api_url, headers=headers, params=params, timeout=timeout)
-            response.raise_for_status()
+            response = _fetch_with_retry(api_url, headers, timeout, params=params)
 
             data = response.json()
             for paper in data.get('data', []):

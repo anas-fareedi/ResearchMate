@@ -9,13 +9,31 @@ from typing import Optional, List
 from urllib.parse import urlparse
 import time
 from functools import wraps
+from pythonjsonlogger import jsonlogger
+from config import settings
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+def setup_logging():
+    logger = logging.getLogger()
+    
+    # Clear existing handlers
+    if logger.hasHandlers():
+        logger.handlers.clear()
+        
+    handler = logging.StreamHandler()
+    
+    if settings.ENVIRONMENT.lower() == "production":
+        formatter = jsonlogger.JsonFormatter('%(asctime)s %(name)s %(levelname)s %(message)s')
+        logger.setLevel(logging.INFO)
+    else:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        logger.setLevel(logging.DEBUG)
+        
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
 
 
 class RateLimiter:
@@ -115,6 +133,12 @@ def validate_url(url: str) -> bool:
         # Remove port for validation
         host_only = netloc_lower.split(':')[0]
         
+        # Bug #17 - SSRF Bypass via Integer IPs (e.g. 2130706433 -> 127.0.0.1)
+        # Block raw integer hostnames which browsers/requests evaluate as IP addresses.
+        if host_only.isdigit():
+            logger.warning(f"Blocked integer IP (SSRF protection): {url}")
+            return False
+
         # Bug #14 – expanded SSRF blocklist:
         #   • Added CGNAT range 100.64.x – 100.127.x (RFC 6598)
         #   • Added IPv6 private/link-local prefixes
