@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  research-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research-assistant
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      # Mount Firebase service account (never bake into image)
+      - ./research-mate-5ce6b-firebase-adminsdk-fbsvc-a77b404b90.json:/app/research-mate-5ce6b-firebase-adminsdk-fbsvc-a77b404b90.json:ro
+      # Persist research outputs
+      - ./research_outputs:/app/research_outputs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

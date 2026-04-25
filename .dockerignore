@@ -2,6 +2,7 @@
 .gitignore
 .env
 .env.*
+.env.production
 __pycache__/
 *.pyc
 *.pyo
@@ -18,3 +19,12 @@ tests/
 Dockerfile
 .dockerignore
 *.log
+# Security: never bake secrets into the image
+*.pem
+*firebase-adminsdk*.json
+serviceAccountKey.json
+# Misc
+README.md
+ARCHITECTURE.txt
+LICENSE
+*.md

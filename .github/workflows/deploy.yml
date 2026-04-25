@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI/CD → Deploy to EC2
 
 on:
   push:
@@ -9,52 +9,85 @@ on:
       - main
 
 jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Lint & basic validation
+  # ─────────────────────────────────────────────
   test-and-lint:
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10"
-        cache: 'pip'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 APP/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 APP/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+      - uses: actions/checkout@v4
 
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+          pip install -r requirements.txt
+
+      - name: Lint with flake8 (errors only)
+        run: |
+          flake8 APP/ --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  # ─────────────────────────────────────────────
+  # Job 2: Build Docker image (validate Dockerfile)
+  # ─────────────────────────────────────────────
   build-docker:
     needs: test-and-lint
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Build Docker Image
-      run: |
-        docker build -t research-assistant:latest .
-        
-    # Note: To push to a container registry like Docker Hub or Google Artifact Registry,
-    # add authentication and docker push steps here.
-    # Example for Docker Hub:
-    # - name: Log in to Docker Hub
-    #   uses: docker/login-action@v2
-    #   with:
-    #     username: ${{ secrets.DOCKER_USERNAME }}
-    #     password: ${{ secrets.DOCKER_PASSWORD }}
-    # - name: Push Docker Image
-    #   run: |
-    #     docker tag research-assistant:latest ${{ secrets.DOCKER_USERNAME }}/research-assistant:latest
-    #     docker push ${{ secrets.DOCKER_USERNAME }}/research-assistant:latest
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t research-assistant:latest .
+
+  # ─────────────────────────────────────────────
+  # Job 3: SSH into EC2 and redeploy
+  # Requires these GitHub Secrets to be set:
+  #   EC2_HOST       — public IP of your EC2 instance
+  #   EC2_USERNAME   — usually "ubuntu"
+  #   EC2_SSH_KEY    — contents of your .pem file
+  #   ENV_FILE       — full contents of your production .env file
+  #   FIREBASE_JSON  — contents of your firebase-adminsdk JSON file
+  # ─────────────────────────────────────────────
+  deploy-to-ec2:
+    needs: build-docker
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            # Write production .env from GitHub Secret
+            echo "${{ secrets.ENV_FILE }}" > /home/ubuntu/research-assistant/.env
+
+            # Write Firebase credential from GitHub Secret
+            echo "${{ secrets.FIREBASE_JSON }}" > /home/ubuntu/research-assistant/research-mate-5ce6b-firebase-adminsdk-fbsvc-a77b404b90.json
+
+            # Pull latest code
+            cd /home/ubuntu/research-assistant
+            git pull origin main
+
+            # Rebuild image and restart container
+            docker compose down || true
+            docker compose build --no-cache
+            docker compose up -d
+
+            # Wait for health check to pass
+            sleep 10
+            curl -f http://localhost:8080/health || (echo "Health check FAILED" && exit 1)
+
+            echo "✅ Deployment successful!"

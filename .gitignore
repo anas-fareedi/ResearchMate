@@ -43,3 +43,9 @@ lerna-debug.log*
 # Firebase credentials
 *firebase-adminsdk*.json
 serviceAccountKey.json
+
+# EC2 SSH keys — NEVER commit these
+*.pem
+
+# Production environment file — contains real secrets
+.env.production
