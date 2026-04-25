@@ -12,8 +12,7 @@ WORKDIR /app
 # Install python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir "uvicorn[standard]"
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY APP /app/APP
