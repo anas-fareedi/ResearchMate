@@ -6,11 +6,11 @@ services:
     startCommand: gunicorn -c APP/gunicorn_conf.py APP.app:app
     envVars:
       - key: GEMINI_API_KEY
-        sync: true
+        sync: false
       - key: SUPABASE_URL
-        sync: true
+        sync: false
       - key: SUPABASE_KEY
-        sync: true
+        sync: false
       - key: SUPABASE_BUCKET
         value: research-mate
       - key: PYTHON_VERSION
