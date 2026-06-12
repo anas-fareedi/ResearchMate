@@ -1,17 +1,20 @@
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from utils import validate_url, rate_limit, log_error
-from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
-from datetime import datetime
-from bs4 import BeautifulSoup
-from typing import Dict
-import requests
-import re
-import json
 import sys
 import os
 
-
+# Ensure the APP/ directory is on the path before any local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import re
+import json
+from datetime import datetime
+from typing import Dict
+
+import requests
+from bs4 import BeautifulSoup
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from utils import validate_url, rate_limit, log_error
+from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
 
 
 @retry(
@@ -22,7 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 @rate_limit
 def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
     """Fetch URL with retry logic and rate limiting."""
-    response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+    # M5 – never allow callers to disable SSL certificate verification
+    kwargs.pop('verify', None)
+    response = requests.request(method, url, headers=headers, timeout=timeout, verify=True, **kwargs)
     response.raise_for_status()
     return response
 

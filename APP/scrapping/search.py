@@ -5,7 +5,7 @@ import requests
 import re
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode, quote_plus
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +22,9 @@ from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
 @rate_limit
 def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
     """Fetch URL with retry logic and rate limiting."""
-    response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+    # M5 – never allow callers to disable SSL certificate verification
+    kwargs.pop('verify', None)
+    response = requests.request(method, url, headers=headers, timeout=timeout, verify=True, **kwargs)
     response.raise_for_status()
     return response
 
@@ -79,7 +81,8 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
     
     urls = []
     try:
-        search_url = f"{website}/search?q={query.replace(' ', '+')}"
+        # H3 – use urlencode so special chars in the query don't corrupt the URL
+        search_url = f"{website}/search?{urlencode({'q': query})}"
         
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
@@ -139,7 +142,8 @@ def search_with_google(query: str, num_results: int = 5) -> List[str]:
     """
     urls = []
     try:
-        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        # H3 – properly encode query string
+        search_url = f"https://www.google.com/search?{urlencode({'q': query})}"
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
 
@@ -183,10 +187,11 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
         api_url = "https://api.tavily.com/search"
         headers = {
             'Content-Type': 'application/json',
-            'User-Agent': USER_AGENT
+            'User-Agent': USER_AGENT,
+            # H5 – send API key in Authorization header, not request body
+            'Authorization': f'Bearer {api_key}',
         }
         payload = {
-            'api_key': api_key,
             'query': query,
             'search_depth': 'basic',
             'max_results': num_results,
@@ -229,9 +234,10 @@ def get_wikipedia_urls(query: str) -> List[str]:
     urls = []
     try:
         search_term = query.replace(' ', '_')
-        
-        wiki_url = f"https://en.wikipedia.org/wiki/{search_term}"
-        search_url = f"https://en.wikipedia.org/w/index.php?search={query.replace(' ', '+')}"
+
+        # H3 – encode both URLs properly
+        wiki_url = f"https://en.wikipedia.org/wiki/{quote_plus(search_term)}"
+        search_url = f"https://en.wikipedia.org/w/index.php?{urlencode({'search': query})}"
         
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
@@ -274,7 +280,9 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
     """
     urls = []
     try:
-        api_url = f"http://export.arxiv.org/api/query?search_query=all:{query.replace(' ', '+')}&start=0&max_results={max_results}"
+        # H4 – use HTTPS; plain HTTP exposes response to MITM interception
+        # H3 – use urlencode to safely encode the query term
+        api_url = f"https://export.arxiv.org/api/query?{urlencode({'search_query': f'all:{query}', 'start': 0, 'max_results': max_results})}"
         
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
