@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
+from supabase import create_client, Client
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,11 +90,10 @@ class QARequest(BaseModel):
 
 
 class UploadPdfResponse(BaseModel):
-    # L2 – removed download_url / storage_path; they were Firebase-only fields
-    #       always set to None after the Firebase removal.
     document_id: str
     filename: str
     local_path: Optional[str] = None
+    supabase_url: Optional[str] = None
     source: Optional[str] = None
     created_at: Optional[str] = None
 
@@ -107,10 +107,68 @@ class DocumentListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 _DOCUMENT_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+_supabase_client: Optional[Client] = None
+
+
+def get_supabase_client() -> Optional[Client]:
+    """Lazy initialize Supabase client if keys are configured."""
+    global _supabase_client
+    if _supabase_client is None:
+        if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+            try:
+                url = settings.SUPABASE_URL.strip()
+                if url.endswith("/"):
+                    url = url.rstrip("/")
+                if url.endswith("/rest/v1"):
+                    url = url[:-8]
+                if url.endswith("/"):
+                    url = url.rstrip("/")
+
+                _supabase_client = create_client(url, settings.SUPABASE_KEY)
+                logger.info("Supabase client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Supabase client: {e}")
+    return _supabase_client
+
+
+def _download_from_supabase_storage(document_id: str) -> Optional[str]:
+    """Try to download PDF from Supabase Storage and cache it locally."""
+    client = get_supabase_client()
+    if not client:
+        return None
+    try:
+        bucket = client.storage.from_(settings.SUPABASE_BUCKET)
+        files = bucket.list()
+        for f in files:
+            name = f.get("name", "")
+            if not name.lower().endswith(".pdf"):
+                continue
+            
+            # Check if name matches pattern docid_filename.pdf or docid.pdf
+            parts = name.split("_", 1)
+            is_match = False
+            if len(parts) == 2 and parts[0] == document_id:
+                is_match = True
+            elif Path(name).stem == document_id:
+                is_match = True
+                
+            if is_match:
+                logger.info(f"Found document {name} in Supabase Storage. Downloading...")
+                file_data = bucket.download(name)
+                
+                _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                local_path = _OUTPUT_DIR / name
+                with open(local_path, "wb") as local_file:
+                    local_file.write(file_data)
+                logger.info(f"Successfully cached {name} locally at {local_path}")
+                return str(local_path)
+    except Exception as e:
+        logger.error(f"Error downloading {document_id} from Supabase: {e}")
+    return None
 
 
 def _save_pdf_locally(file_path: str, filename: str, metadata: Optional[Dict] = None) -> Dict:
-    """Save PDF to local disk."""
+    """Save PDF to local disk and upload to Supabase Storage if configured."""
     safe_filename = Path(filename).name
     doc_id = str(uuid4())
 
@@ -118,23 +176,41 @@ def _save_pdf_locally(file_path: str, filename: str, metadata: Optional[Dict] = 
     local_path = _OUTPUT_DIR / f"{doc_id}_{safe_filename}"
     shutil.copy(file_path, local_path)
 
+    supabase_url = None
+    client = get_supabase_client()
+    if client:
+        try:
+            storage_path = f"{doc_id}_{safe_filename}"
+            with open(local_path, "rb") as f:
+                file_data = f.read()
+            client.storage.from_(settings.SUPABASE_BUCKET).upload(
+                path=storage_path,
+                file=file_data,
+                file_options={"content-type": "application/pdf"}
+            )
+            supabase_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(storage_path)
+            logger.info(f"Uploaded {storage_path} to Supabase Storage: {supabase_url}")
+        except Exception as e:
+            logger.error(f"Failed to upload {safe_filename} to Supabase Storage: {e}")
+
     record: Dict = {
         "filename": safe_filename,
         "local_path": str(local_path),
+        "supabase_url": supabase_url,
         "document_id": doc_id,
         "created_at": str(Path(file_path).stat().st_mtime),
-        "source": "local",
+        "source": "local" if not supabase_url else "supabase",
     }
     if metadata:
         # M3 – never let caller metadata silently overwrite core identity fields
-        protected = {"filename", "local_path", "document_id", "created_at", "source"}
+        protected = {"filename", "local_path", "supabase_url", "document_id", "created_at", "source"}
         record.update({k: v for k, v in metadata.items() if k not in protected})
 
     return record
 
 
 def _get_local_document_path(document_id: str) -> str:
-    """Get local PDF path using its document_id."""
+    """Get local PDF path using its document_id, downloading from Supabase if needed."""
     # H1 – validate document_id before using it in a glob pattern;
     #       glob metacharacters (*?[) would otherwise match unintended files.
     if not _DOCUMENT_ID_RE.match(document_id):
@@ -147,6 +223,11 @@ def _get_local_document_path(document_id: str) -> str:
         for pdf_file in _OUTPUT_DIR.glob("*.pdf"):
             if pdf_file.stem == document_id:
                 return str(pdf_file)
+
+    # Try downloading from Supabase if not found locally (stateless backend support)
+    downloaded_path = _download_from_supabase_storage(document_id)
+    if downloaded_path:
+        return downloaded_path
 
     raise HTTPException(status_code=404, detail="Document not found")
 
@@ -282,6 +363,36 @@ async def upload_pdf_for_qa(
 def list_documents(limit: int = Query(default=50, ge=1, le=200)):
     items: List[Dict] = []
 
+    # Try Supabase first if configured
+    client = get_supabase_client()
+    if client:
+        try:
+            bucket = client.storage.from_(settings.SUPABASE_BUCKET)
+            files = bucket.list()
+            for f in files:
+                name = f.get("name", "")
+                if not name.lower().endswith(".pdf"):
+                    continue
+                parts = name.split("_", 1)
+                if len(parts) == 2 and len(parts[0]) == 36:
+                    doc_id, filename = parts
+                else:
+                    doc_id = Path(name).stem
+                    filename = name
+
+                created_at = f.get("created_at") or f.get("updated_at") or "0"
+                items.append({
+                    "document_id": doc_id,
+                    "filename": filename,
+                    "supabase_url": bucket.get_public_url(name),
+                    "created_at": created_at,
+                    "source": "supabase",
+                })
+            items.sort(key=lambda x: x.get("created_at", "0"), reverse=True)
+            return DocumentListResponse(documents=items[:limit])
+        except Exception as e:
+            logger.error(f"Failed to list documents from Supabase storage: {e}. Falling back to local.")
+
     # ── Local disk list ───────────────────────────────────────────────────
     if _OUTPUT_DIR.exists():
         for pdf_file in _OUTPUT_DIR.glob("*.pdf"):
@@ -319,6 +430,11 @@ def download_pdf(filename: str):
     if target.parent != _OUTPUT_DIR:
         raise HTTPException(status_code=400, detail="Invalid file path")
     if not target.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        # Try to download from Supabase Storage to local cache
+        parts = safe_name.split("_", 1)
+        doc_id = parts[0] if (len(parts) == 2 and len(parts[0]) == 36) else Path(safe_name).stem
+        downloaded = _download_from_supabase_storage(doc_id)
+        if not downloaded or not Path(downloaded).exists():
+            raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(str(target), media_type="application/pdf", filename=safe_name)

@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str | None = Field(default=None)
     SEMANTIC_SCHOLAR: str | None = Field(default=None)
 
+    # Supabase Settings
+    SUPABASE_URL: str | None = Field(default=None, description="Supabase project URL")
+    SUPABASE_KEY: str | None = Field(default=None, description="Supabase API key (anon or service_role)")
+    SUPABASE_BUCKET: str = Field(default="ResearchMate", description="Supabase storage bucket name")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

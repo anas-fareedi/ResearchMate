@@ -17,3 +17,4 @@ gunicorn
 fastapi
 uvicorn
 python-multipart
+supabase

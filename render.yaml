@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: research-assistant
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -c APP/gunicorn_conf.py APP.app:app
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: true
+      - key: SUPABASE_URL
+        sync: true
+      - key: SUPABASE_KEY
+        sync: true
+      - key: SUPABASE_BUCKET
+        value: research-mate
