@@ -1,16 +1,21 @@
 import sys
 import os
+from pathlib import Path
 from fpdf import FPDF
 from typing import Dict
 from datetime import datetime
 import json
 from config import OUTPUT_CONFIG
-from utils import ensure_output_directory, log_error, logger
+from utils import log_error, logger
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-OUTPUT_DIR = ensure_output_directory(OUTPUT_CONFIG.get("directory", "research_outputs"))
+# M6 – anchor OUTPUT_DIR to the project root so it is stable regardless
+#      of the working directory from which the server is launched.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = str(_PROJECT_ROOT / OUTPUT_CONFIG.get("directory", "research_outputs"))
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 class PDFReport(FPDF):

@@ -4,12 +4,16 @@ Utility functions for security, validation, and common operations.
 import os
 import re
 import logging
+import ipaddress
 import threading
 from typing import Optional, List
 from urllib.parse import urlparse
 import time
 from functools import wraps
-from pythonjsonlogger import jsonlogger
+try:
+    from pythonjsonlogger import jsonlogger
+except ImportError:  # pragma: no cover - fallback for incomplete environments
+    jsonlogger = None
 from config import settings
 
 # Configure logging
@@ -22,7 +26,7 @@ def setup_logging():
         
     handler = logging.StreamHandler()
     
-    if settings.ENVIRONMENT.lower() == "production":
+    if settings.ENVIRONMENT.lower() == "production" and jsonlogger is not None:
         formatter = jsonlogger.JsonFormatter('%(asctime)s %(name)s %(levelname)s %(message)s')
         logger.setLevel(logging.INFO)
     else:
@@ -34,6 +38,13 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+
+def _normalize_hostname(hostname: str) -> str:
+    hostname = hostname.strip().lower().rstrip('.')
+    if hostname.startswith('[') and hostname.endswith(']'):
+        hostname = hostname[1:-1]
+    return hostname
 
 
 class RateLimiter:
@@ -128,15 +139,28 @@ def validate_url(url: str) -> bool:
             return False
         
         # Prevent localhost/private IP access (SSRF protection)
-        netloc_lower = parsed.netloc.lower()
-        
-        # Remove port for validation
-        host_only = netloc_lower.split(':')[0]
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        host_only = _normalize_hostname(hostname)
+
+        try:
+            host_ip = ipaddress.ip_address(host_only)
+            if host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local or host_ip.is_reserved or host_ip.is_multicast or host_ip.is_unspecified:
+                logger.warning(f"Blocked private/local IP URL: {url}")
+                return False
+        except ValueError:
+            pass
         
         # Bug #17 - SSRF Bypass via Integer IPs (e.g. 2130706433 -> 127.0.0.1)
         # Block raw integer hostnames which browsers/requests evaluate as IP addresses.
         if host_only.isdigit():
             logger.warning(f"Blocked integer IP (SSRF protection): {url}")
+            return False
+
+        if re.fullmatch(r"0[xX][0-9a-fA-F]+", host_only) or re.fullmatch(r"0[0-7]+", host_only):
+            logger.warning(f"Blocked encoded IP (SSRF protection): {url}")
             return False
 
         # Bug #14 – expanded SSRF blocklist:
@@ -145,42 +169,15 @@ def validate_url(url: str) -> bool:
         #   • Added metadata service addresses (AWS/GCP/Azure)
         blocked_hosts = [
             'localhost',
-            '127.',          # entire 127.0.0.0/8 loopback range
-            '0.',            # 0.0.0.0/8
-            '::1',
-            '[::1]',
-            '10.',           # RFC 1918 class-A
-            '172.16.',       # RFC 1918 class-B (172.16-31.x)
-            '172.17.',
-            '172.18.',
-            '172.19.',
-            '172.20.',
-            '172.21.',
-            '172.22.',
-            '172.23.',
-            '172.24.',
-            '172.25.',
-            '172.26.',
-            '172.27.',
-            '172.28.',
-            '172.29.',
-            '172.30.',
-            '172.31.',
-            '192.168.',      # RFC 1918 class-C
-            '169.254.',      # Link-local / AWS metadata (169.254.169.254)
-            # CGNAT – RFC 6598 (100.64.0.0/10 = 100.64 – 100.127)
-            *[f'100.{i}.' for i in range(64, 128)],
-            # IPv6 private / link-local / unique-local
-            'fc',            # fc00::/7 unique-local
-            'fd',
-            'fe80',          # fe80::/10 link-local
+            'metadata.google.internal',
             # Cloud metadata services
             '169.254.169.254',   # AWS / GCP / Azure IMDS
-            'metadata.google.internal',
         ]
         
         for blocked in blocked_hosts:
-            if host_only.startswith(blocked) or blocked in host_only:
+            # L1 \u2013 only exact-match or subdomain suffix; 'startswith' is too
+            #       broad and would incorrectly block 'localhost.evil.com'.
+            if host_only == blocked or host_only.endswith(f".{blocked}"):
                 logger.warning(f"Blocked private/local URL: {url}")
                 return False
         

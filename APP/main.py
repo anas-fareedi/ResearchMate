@@ -1,11 +1,19 @@
 import os
 import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from research import research
 from qa_chat import start_pdf_qa_chat
 from utils import validate_api_key, sanitize_query, validate_websites, log_error
 from config import API_CONFIG, OUTPUT_CONFIG
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Validate API keys at startup
 try:

@@ -1,30 +1,26 @@
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
 # Load .env from the project root (one level above APP/)
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 class Settings(BaseSettings):
     # App Settings
     ENVIRONMENT: str = Field(default="development", description="development or production")
     CORS_ALLOW_ORIGINS: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
+    API_ACCESS_TOKEN: str | None = Field(default=None, description="Optional shared token for API access")
 
     # API Keys
-    GEMINI_API_KEY: str = Field(..., description="Google Gemini API Key")
+    GEMINI_API_KEY: str = Field(default="", description="Google Gemini API Key")
     Elsevier_API_KEY: str | None = Field(default=None)
     TAVILY_API_KEY: str | None = Field(default=None)
     SEMANTIC_SCHOLAR: str | None = Field(default=None)
-
-    # Firebase
-    FIREBASE_PROJECT_ID: str | None = Field(default=None)
-    FIREBASE_STORAGE_BUCKET: str | None = Field(default=None)
-    FIREBASE_SERVICE_ACCOUNT_PATH: str | None = Field(default=None)
-    FIREBASE_SERVICE_ACCOUNT_JSON: str | None = Field(default=None)
-    FIREBASE_DATABASE_URL: str | None = Field(default=None)
-    db_url: str | None = Field(default=None)
 
     class Config:
         env_file = ".env"
@@ -32,6 +28,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Validate required keys early with a clear human-readable error
+if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.startswith("your-"):
+    print(
+        "\nERROR: GEMINI_API_KEY is not configured.\n"
+        "  1. Open the .env file in the project root\n"
+        "  2. Set GEMINI_API_KEY=<your real key>\n"
+        "  Get a key at: https://makersuite.google.com/app/apikey\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Legacy dict-style constants kept for backward compat with Agents/document_gen
@@ -99,4 +106,3 @@ RATE_LIMIT = {
     "requests_per_second": 1,
     "delay_between_requests": 1,
 }
-

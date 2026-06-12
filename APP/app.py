@@ -1,34 +1,27 @@
 # ============================================================
 # app.py  –  Research Assistant FastAPI backend
 # ============================================================
-# Fixes applied:
-#  #1  – _OUTPUT_DIR moved to top (before any function that uses it)
-#  #2  – SERVER_TIMESTAMP replaced with None in response dict
-#  #3  – temp-file cleanup moved to a safe finally-only block
-#  #4  – pdf_path path-traversal protection added
-#  #5  – signed-URL fallback chain: make_public → signed URL → plain GCS URL
-#  #6  – /research wrapped in try/except with proper HTTP errors
-#  #7  – query field max_length=2000 constraint via Pydantic Field
-#  #8  – UUID-aware filename split in local fallback of list_documents
-#  #9  – temp file cleanup on Firestore doc missing storage_path
-#  #13 – firebase_admin imports moved to top with all other imports
-# ============================================================
 
-import json
 import os
+import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import re
 import shutil
 import tempfile
-from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
 from uuid import uuid4
 
-import firebase_admin
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from firebase_admin import credentials, firestore, storage
 from pydantic import BaseModel, Field, model_validator
 
 from qa_chat import PDFRAGChatbot
@@ -40,17 +33,22 @@ from utils import logger
 # Load .env from project root is handled by pydantic-settings in config.py
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Bug #1 – _OUTPUT_DIR defined HERE, at the top, before any function uses it.
-# Previously it was defined on line 321 (after route handlers that call it).
-# ---------------------------------------------------------------------------
 _OUTPUT_DIR = (Path(__file__).resolve().parent.parent / "research_outputs").resolve()
+_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # ensure it exists at startup
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _api_token_dependency(x_api_token: Optional[str] = Header(default=None)):
+    expected_token = settings.API_ACCESS_TOKEN
+    if expected_token and x_api_token != expected_token:
+        raise HTTPException(status_code=403, detail="Invalid API access token")
 
 
 # ---------------------------------------------------------------------------
 # FastAPI app + CORS
 # ---------------------------------------------------------------------------
-app = FastAPI(title="Research Assistant API", version="1.0.0")
+_app_dependencies = [Depends(_api_token_dependency)] if settings.API_ACCESS_TOKEN else []
+app = FastAPI(title="Research Assistant API", version="1.0.0", dependencies=_app_dependencies)
 
 _raw_allowed_origins = settings.CORS_ALLOW_ORIGINS
 _allowed_origins = [o.strip() for o in _raw_allowed_origins.split(",") if o.strip()]
@@ -71,13 +69,15 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 class QueryRequest(BaseModel):
-    # Bug #7 – added min/max length constraints to prevent excessively large bodies
+    # #7 – length constraints prevent excessively large request bodies
     query: str = Field(..., min_length=1, max_length=2000)
-    websites: Optional[List[str]] = None
+    # H6 – cap websites list to prevent DoS via thousands of scrape targets
+    websites: Optional[List[str]] = Field(default=None, max_length=20)
 
 
 class QARequest(BaseModel):
-    question: str
+    # M1 – unbounded question enables token-cost abuse and prompt injection
+    question: str = Field(..., min_length=1, max_length=1000)
     pdf_path: Optional[str] = None
     document_id: Optional[str] = None
 
@@ -89,11 +89,13 @@ class QARequest(BaseModel):
 
 
 class UploadPdfResponse(BaseModel):
+    # L2 – removed download_url / storage_path; they were Firebase-only fields
+    #       always set to None after the Firebase removal.
     document_id: str
     filename: str
-    download_url: Optional[str] = None
-    storage_path: Optional[str] = None
     local_path: Optional[str] = None
+    source: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class DocumentListResponse(BaseModel):
@@ -101,162 +103,16 @@ class DocumentListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Firebase helpers
-# ---------------------------------------------------------------------------
-
-def _extract_project_from_db_url(db_url: Optional[str]) -> Optional[str]:
-    if not db_url:
-        return None
-    try:
-        host = urlparse(db_url).hostname or ""
-        prefix = host.split(".", 1)[0]
-        if prefix.endswith("-default-rtdb"):
-            return prefix[: -len("-default-rtdb")]
-        return None
-    except Exception:
-        return None
-
-
-def _firebase_config() -> Dict[str, Optional[str]]:
-    service_account_path = settings.FIREBASE_SERVICE_ACCOUNT_PATH
-    service_account_json = settings.FIREBASE_SERVICE_ACCOUNT_JSON
-
-    project_id = settings.FIREBASE_PROJECT_ID
-    if not project_id and service_account_json:
-        try:
-            project_id = json.loads(service_account_json).get("project_id")
-        except Exception:
-            project_id = None
-
-    if not project_id and service_account_path and Path(service_account_path).exists():
-        try:
-            with open(service_account_path, "r", encoding="utf-8") as handle:
-                project_id = json.load(handle).get("project_id")
-        except Exception:
-            project_id = None
-
-    if not project_id:
-        project_id = _extract_project_from_db_url(
-            settings.FIREBASE_DATABASE_URL or settings.db_url
-        )
-
-    storage_bucket = (
-        settings.FIREBASE_STORAGE_BUCKET
-        or (f"{project_id}.appspot.com" if project_id else None)
-    )
-
-    return {
-        "service_account_path": service_account_path,
-        "service_account_json": service_account_json,
-        "project_id": project_id,
-        "storage_bucket": storage_bucket,
-    }
-
-
-def _init_firebase():
-    cfg = _firebase_config()
-    service_account_path = cfg["service_account_path"]
-    service_account_json = cfg["service_account_json"]
-    storage_bucket = cfg["storage_bucket"]
-
-    if not storage_bucket:
-        return None, None
-
-    try:
-        if not firebase_admin._apps:
-            cred = None
-            if service_account_path:
-                cred = credentials.Certificate(service_account_path)
-            elif service_account_json:
-                cred = credentials.Certificate(json.loads(service_account_json))
-
-            if cred is not None:
-                firebase_admin.initialize_app(cred, {"storageBucket": storage_bucket})
-            else:
-                firebase_admin.initialize_app(options={"storageBucket": storage_bucket})
-
-        db_client = firestore.client()
-        bucket_client = storage.bucket()
-        return db_client, bucket_client
-    except Exception as exc:
-        logger.warning("Firebase init failed", exc_info=exc)
-        return None, None
-
-
-db, bucket = _init_firebase()
-
-
-
-# ---------------------------------------------------------------------------
 # Storage helpers
 # ---------------------------------------------------------------------------
 
-def _save_pdf_to_firebase(file_path: str, filename: str, metadata: Optional[Dict] = None) -> Dict:
-    """Save PDF to Firebase Storage + Firestore, or fall back to local disk."""
+_DOCUMENT_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+
+def _save_pdf_locally(file_path: str, filename: str, metadata: Optional[Dict] = None) -> Dict:
+    """Save PDF to local disk."""
     safe_filename = Path(filename).name
     doc_id = str(uuid4())
-
-    # ── Try Firebase first ────────────────────────────────────────────────
-    if db is not None and bucket is not None:
-        try:
-            storage_path = f"pdfs/{doc_id}_{safe_filename}"
-            blob = bucket.blob(storage_path)
-            blob.upload_from_filename(file_path, content_type="application/pdf")
-
-            # Bug #5 – three-level fallback for download URL:
-            #   1. make_public (fails when Uniform bucket-level access is on)
-            #   2. generate_signed_url (fails without a service-account credential)
-            #   3. plain GCS URL (always works, requires appropriate IAM rules)
-            download_url: Optional[str] = None
-            try:
-                blob.make_public()
-                download_url = blob.public_url
-            except Exception as public_err:
-                logger.info("make_public failed, trying signed URL.", exc_info=public_err)
-                try:
-                    download_url = blob.generate_signed_url(
-                        version="v4", expiration=timedelta(days=365)
-                    )
-                except Exception as sign_err:
-                    # Fallback: plain GCS URL (bucket-level access or requester-pays)
-                    download_url = (
-                        f"https://storage.googleapis.com/{bucket.name}/{storage_path}"
-                    )
-                    logger.info("Signed URL failed, using plain GCS URL.", exc_info=sign_err)
-
-            # Firestore record — note we store SERVER_TIMESTAMP only in Firestore.
-            # Bug #2 – do NOT put SERVER_TIMESTAMP into the response dict; it is a
-            # special sentinel that Pydantic/JSON cannot serialise.
-            firestore_record = {
-                "filename": safe_filename,
-                "storage_path": storage_path,
-                "download_url": download_url,
-                "created_at": firestore.SERVER_TIMESTAMP,   # written to Firestore only
-                "source": "firebase",
-            }
-            if metadata:
-                firestore_record.update(metadata)
-
-            doc_ref = db.collection("documents").document()
-            doc_ref.set(firestore_record)
-
-            # Build the response dict without the un-serialisable sentinel
-            result: Dict = {
-                k: v for k, v in firestore_record.items() if k != "created_at"
-            }
-            result["created_at"] = None   # client will see null; Firestore holds the real value
-            result["document_id"] = doc_ref.id
-            return result
-
-        except Exception as exc:
-            logger.warning("Firebase upload failed, falling back to local storage if not in production", exc_info=exc)
-
-    # ── Fallback: local disk ──────────────────────────────────────────────
-    if settings.ENVIRONMENT.lower() == "production":
-        raise HTTPException(
-            status_code=500,
-            detail="Firebase upload failed and local fallback is disabled in production environment"
-        )
 
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     local_path = _OUTPUT_DIR / f"{doc_id}_{safe_filename}"
@@ -270,38 +126,27 @@ def _save_pdf_to_firebase(file_path: str, filename: str, metadata: Optional[Dict
         "source": "local",
     }
     if metadata:
-        record.update(metadata)
+        # M3 – never let caller metadata silently overwrite core identity fields
+        protected = {"filename", "local_path", "document_id", "created_at", "source"}
+        record.update({k: v for k, v in metadata.items() if k not in protected})
 
     return record
 
 
-def _download_document_pdf(document_id: str) -> str:
-    """Download PDF from Firebase Storage (via Firestore lookup) or local disk."""
-    # ── Try Firebase ──────────────────────────────────────────────────────
-    if db is not None:
-        try:
-            doc_ref = db.collection("documents").document(document_id)
-            snapshot = doc_ref.get()
-            if snapshot.exists:
-                data = snapshot.to_dict() or {}
-                storage_path = data.get("storage_path")
-                if storage_path and bucket is not None:
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                    tmp.close()
-                    try:
-                        # Bug #9 – if download fails, clean up the temp file immediately
-                        bucket.blob(storage_path).download_to_filename(tmp.name)
-                        return tmp.name
-                    except Exception as dl_err:
-                        os.unlink(tmp.name)
-                        logger.warning("Firebase download failed, trying local.", exc_info=dl_err)
-        except Exception:
-            pass  # fall through to local
+def _get_local_document_path(document_id: str) -> str:
+    """Get local PDF path using its document_id."""
+    # H1 – validate document_id before using it in a glob pattern;
+    #       glob metacharacters (*?[) would otherwise match unintended files.
+    if not _DOCUMENT_ID_RE.match(document_id):
+        raise HTTPException(status_code=400, detail="Invalid document_id format")
 
-    # ── Fallback: local disk ──────────────────────────────────────────────
     if _OUTPUT_DIR.exists():
         for pdf_file in _OUTPUT_DIR.glob(f"{document_id}_*.pdf"):
             return str(pdf_file)
+        # Also support legacy files where the full stem equals the document_id
+        for pdf_file in _OUTPUT_DIR.glob("*.pdf"):
+            if pdf_file.stem == document_id:
+                return str(pdf_file)
 
     raise HTTPException(status_code=404, detail="Document not found")
 
@@ -320,19 +165,6 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.get("/firebase-status")
-def firebase_status():
-    cfg = _firebase_config()
-    return {
-        "initialized": db is not None and bucket is not None,
-        "has_storage_bucket": bool(cfg["storage_bucket"]),
-        "has_service_account_path": bool(cfg["service_account_path"]),
-        "has_service_account_json": bool(cfg["service_account_json"]),
-        "project_id": cfg["project_id"],
-        "storage_bucket": cfg["storage_bucket"],
-    }
-
-
 @app.post("/research")
 def run_research(request: QueryRequest):
     # Bug #6 – wrap the whole workflow in a try/except so callers always get a
@@ -345,8 +177,8 @@ def run_research(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Research workflow failed: {exc}")
 
     pdf_path = result.get("pdf_path")
-    if pdf_path and Path(pdf_path).exists() and db is not None and bucket is not None:
-        firebase_doc = _save_pdf_to_firebase(
+    if pdf_path and Path(pdf_path).exists():
+        local_doc = _save_pdf_locally(
             file_path=pdf_path,
             filename=Path(pdf_path).name,
             metadata={
@@ -355,25 +187,26 @@ def run_research(request: QueryRequest):
                 "source": "generated",
             },
         )
-        result["firebase"] = firebase_doc
+        result["local"] = local_doc
 
     return result
 
 
 @app.post("/qa")
 def run_qa(request: QARequest):
-    temp_pdf_path = None
     try:
         if request.document_id:
-            temp_pdf_path = _download_document_pdf(request.document_id)
-            source_pdf = temp_pdf_path
+            source_pdf = _get_local_document_path(request.document_id)
         else:
-            # Bug #4 – validate pdf_path is inside _OUTPUT_DIR to prevent path traversal
             raw_path = request.pdf_path
             if not raw_path:
                 raise HTTPException(status_code=400, detail="pdf_path is required")
             resolved = Path(raw_path).resolve()
-            if not str(resolved).startswith(str(_OUTPUT_DIR)):
+            # H2 – enforce .pdf extension before any further path checks
+            if resolved.suffix.lower() != ".pdf":
+                raise HTTPException(status_code=400, detail="Only .pdf files are permitted")
+            # #4 – path-traversal guard: must stay inside _OUTPUT_DIR
+            if not resolved.is_relative_to(_OUTPUT_DIR):
                 raise HTTPException(
                     status_code=403,
                     detail="Access to the requested path is not permitted"
@@ -389,14 +222,6 @@ def run_qa(request: QARequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        # temp_pdf_path only exists for Firebase-downloaded files; always clean up
-        if temp_pdf_path:
-            try:
-                if os.path.exists(temp_pdf_path):
-                    os.remove(temp_pdf_path)
-            except OSError:
-                pass
 
 
 @app.post("/upload-pdf", response_model=UploadPdfResponse)
@@ -410,18 +235,25 @@ async def upload_pdf_for_qa(
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
 
-    # Bug #3 – create the temp file and handle cleanup exclusively in finally.
-    # The file is kept alive until _save_pdf_to_firebase returns fully.
+    # #3 – create temp file; keep it alive until _save_pdf_locally returns,
+    #       then always clean it up in the finally block.
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     tmp_path = tmp.name
     tmp.close()   # close the handle; the file still exists on disk
 
     try:
-        file_bytes = await file.read()
+        total_bytes = 0
         with open(tmp_path, "wb") as handle:
-            handle.write(file_bytes)
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Uploaded PDF is too large")
+                handle.write(chunk)
 
-        record = _save_pdf_to_firebase(
+        record = _save_pdf_locally(
             file_path=tmp_path,
             filename=file.filename,
             metadata={
@@ -430,9 +262,15 @@ async def upload_pdf_for_qa(
                 "source": "uploaded",
             },
         )
-        return UploadPdfResponse(**record)
+        # model_validate filters out extra keys (title, description, query, summary)
+        # that _save_pdf_locally may carry but UploadPdfResponse does not declare.
+        return UploadPdfResponse.model_validate(record)
     finally:
-        # Cleanup runs after _save_pdf_to_firebase completes (success or failure)
+        try:
+            await file.close()
+        except Exception:
+            pass
+        # M4 – cleanup runs after _save_pdf_locally completes (success or failure)
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -444,28 +282,7 @@ async def upload_pdf_for_qa(
 def list_documents(limit: int = Query(default=50, ge=1, le=200)):
     items: List[Dict] = []
 
-    if db is not None:
-        try:
-            docs = (
-                db.collection("documents")
-                .order_by("created_at", direction=firestore.Query.DESCENDING)
-                .limit(limit)
-                .stream()
-            )
-            for doc in docs:
-                payload = doc.to_dict() or {}
-                created_at = payload.get("created_at")
-                if hasattr(created_at, "isoformat"):
-                    payload["created_at"] = created_at.isoformat()
-                payload["document_id"] = doc.id
-                items.append(payload)
-            return DocumentListResponse(documents=items)
-        except Exception as exc:
-            logger.warning("Firestore fetch failed, falling back to local storage if not in production", exc_info=exc)
-
-    # ── Fallback: local disk ──────────────────────────────────────────────
-    if settings.ENVIRONMENT.lower() == "production":
-        return DocumentListResponse(documents=[])
+    # ── Local disk list ───────────────────────────────────────────────────
     if _OUTPUT_DIR.exists():
         for pdf_file in _OUTPUT_DIR.glob("*.pdf"):
             # Bug #8 – only treat the prefix as a document_id when it looks like
