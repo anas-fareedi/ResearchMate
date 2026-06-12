@@ -4,6 +4,13 @@ An AI-powered research assistant that automatically searches the web, extracts c
 
 <img width="1245" height="877" alt="Screenshot 2026-04-11 201452" src="https://github.com/user-attachments/assets/c2d5aa91-5d75-4b9b-9bf4-54f1885ca7f8" />
 
+
+## pending
+### One deployed demo (or 60s screencast) reachable from README
+### prepared project pitches (30s, 2min, 5min versions).
+### Advanced scaling/infra — fix by documenting tradeoffs and showing a simple cost/latency estimate for your deployed app.
+
+
 ## tool for performing local RAG like operations https://www.ivorymind.com/
 
 ## Features ✨
