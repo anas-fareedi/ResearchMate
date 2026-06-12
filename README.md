@@ -1,5 +1,7 @@
 # Research Assistant 
 
+### check it out Backend : https://researchmate-1yzg.onrender.com
+
 An AI-powered research assistant that automatically searches the web, extracts content, and generates comprehensive summaries using Google's Gemini AI.
 
 <img width="1245" height="877" alt="Screenshot 2026-04-11 201452" src="https://github.com/user-attachments/assets/c2d5aa91-5d75-4b9b-9bf4-54f1885ca7f8" />
