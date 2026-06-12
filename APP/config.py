@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str | None = Field(default=None, description="Supabase API key (anon or service_role)")
     SUPABASE_BUCKET: str = Field(default="ResearchMate", description="Supabase storage bucket name")
 
+    # LangSmith Settings
+    LANGCHAIN_TRACING_V2: str = Field(default="false", description="Whether to enable LangChain tracing")
+    LANGCHAIN_ENDPOINT: str = Field(default="https://api.smith.langchain.com", description="LangChain API endpoint")
+    LANGCHAIN_API_KEY: str | None = Field(default=None, description="LangChain API key")
+    LANGCHAIN_PROJECT: str = Field(default="ResearchMate", description="LangChain project name")
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -44,6 +50,21 @@ if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.startswith("your-"):
         file=sys.stderr,
     )
     sys.exit(1)
+
+# Validate LangSmith tracing configuration
+if settings.LANGCHAIN_TRACING_V2.lower() == "true":
+    if not settings.LANGCHAIN_API_KEY:
+        print(
+            "WARNING: LangSmith tracing is set to 'true' but LANGCHAIN_API_KEY is not configured.",
+            file=sys.stderr,
+        )
+    else:
+        # Explicitly update environment variables so LangChain core detects them
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGCHAIN_ENDPOINT
+        os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+        os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
+        print(f"LangSmith tracing enabled - Project: '{settings.LANGCHAIN_PROJECT}'")
 
 # ---------------------------------------------------------------------------
 # Legacy dict-style constants kept for backward compat with Agents/document_gen
