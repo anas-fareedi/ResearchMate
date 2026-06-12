@@ -12,12 +12,10 @@ services:
     env_file:
       - .env
     volumes:
-      # Mount Firebase service account (never bake into image)
-      - ./research-mate-5ce6b-firebase-adminsdk-fbsvc-a77b404b90.json:/app/research-mate-5ce6b-firebase-adminsdk-fbsvc-a77b404b90.json:ro
       # Persist research outputs
       - ./research_outputs:/app/research_outputs
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
