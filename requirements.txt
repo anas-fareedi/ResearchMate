@@ -12,7 +12,6 @@ google-generativeai
 fpdf
 requests
 pypdf
-firebase-admin
 python-json-logger
 gunicorn
 fastapi

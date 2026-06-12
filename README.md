@@ -116,27 +116,16 @@ Edit `APP/config.py` to customize:
 - **Output Settings**: File formats, PDF styling
 - **Rate Limiting**: Requests per second, retry attempts
 
-### Firebase (Optional for Cloud PDF Persistence)
+### Local PDF Persistence
 
-To store generated and uploaded PDFs in Firebase (Storage + Firestore), set:
+Generated and uploaded PDFs are saved directly to the local `research_outputs/` directory.
 
-```env
-FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
-FIREBASE_SERVICE_ACCOUNT_PATH=/absolute/path/to/serviceAccountKey.json
-```
+The API supports the following endpoints:
 
-Alternative to path-based credentials:
-
-```env
-FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
-```
-
-When configured, the API supports:
-
-- `POST /research`: generates local output and also saves generated PDF metadata to Firestore.
-- `POST /upload-pdf`: upload an external PDF for persistent storage and Q&A.
-- `GET /documents`: list previously saved PDFs.
-- `POST /qa`: ask questions using either local `pdf_path` or Firebase `document_id`.
+- `POST /research`: generates local JSON and PDF outputs under the `research_outputs/` folder.
+- `POST /upload-pdf`: upload an external PDF for local storage and Q&A.
+- `GET /documents`: list all locally saved PDFs.
+- `POST /qa`: ask questions using a local `pdf_path` or `document_id`.
 
 ## Architecture 🏗️
 

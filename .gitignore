@@ -21,15 +21,10 @@ htmlcov/
 
 # Frontend / Node
 node_modules/
-/Frontend/ai-research-ui/node_modules/
-/Frontend/ai-research-ui/dist/
-/Frontend/ai-research-ui/dist-ssr/
-/Frontend/ai-research-ui/*.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
 # Editor and OS files
 .idea/
@@ -40,12 +35,11 @@ lerna-debug.log*
 *.sln
 *.sw?
 
-# Firebase credentials
+# Credentials — NEVER commit these
 *firebase-adminsdk*.json
 serviceAccountKey.json
-
-# EC2 SSH keys — NEVER commit these
 *.pem
 
-# Production environment file — contains real secrets
+# Production environment files — contain real secrets
 .env.production
+.env.prod
