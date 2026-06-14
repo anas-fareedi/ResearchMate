@@ -1,6 +1,7 @@
 import os
 import sys
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Ensure parent directory is on the path before any local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -82,47 +83,43 @@ def planning_agent(state: ResearchState) -> ResearchState:
 
 def search_agent(state: ResearchState) -> ResearchState:
     """
-    Searches specified websites for relevant content.
+    Searches specified websites for relevant content in parallel.
+    All search providers (Tavily, Google, Semantic Scholar, per-website)
+    are fired concurrently and their results merged.
     """
     query = state['query']
     websites = state['websites']
-    search_terms = state.get('search_terms', [query])
-    
-    all_urls = []
 
-    try:
-        logger.info("Trying Tavily search...")
-        tavily_urls = search_with_tavily(query, num_results=5)
-        all_urls.extend(tavily_urls)
-    except (requests.RequestException, ValueError) as e:
-        log_error(e, "Tavily search in search_agent")
-    
-    try:
-        logger.info("Trying Google search...")
-        google_urls = search_with_google(query, num_results=5)
-        all_urls.extend(google_urls)
-    except Exception as e:
-        log_error(e, "Google search in search_agent")
-
-    try:
-        logger.info("Trying Semantic Scholar API...")
-        semantic_urls = search_semantic_scholar(query, max_results=5)
-        all_urls.extend(semantic_urls)
-    except Exception as e:
-        log_error(e, "Semantic Scholar search in search_agent")
-    
-    logger.info("Trying specified websites...")
+    # Build list of (label, callable) search tasks
+    search_tasks = [
+        ("Tavily",           lambda: search_with_tavily(query, num_results=5)),
+        ("Google",           lambda: search_with_google(query, num_results=5)),
+        ("Semantic Scholar", lambda: search_semantic_scholar(query, max_results=5)),
+    ]
     for website in websites:
-        try:
-            urls = search_website(website, query, max_results=3)
-            all_urls.extend(urls)
-        except Exception as e:
-            log_error(e, f"Website search for {website}")
-            continue
-    
+        # Capture website in default-arg to avoid late-binding closure issues
+        search_tasks.append(
+            (f"Website:{website}", lambda w=website: search_website(w, query, max_results=3))
+        )
+
+    all_urls = []
+    logger.info(f"Running {len(search_tasks)} search tasks in parallel...")
+
+    with ThreadPoolExecutor(max_workers=len(search_tasks)) as executor:
+        future_to_label = {
+            executor.submit(fn): label for label, fn in search_tasks
+        }
+        for future in as_completed(future_to_label):
+            label = future_to_label[future]
+            try:
+                urls = future.result()
+                all_urls.extend(urls)
+                logger.info(f"{label} returned {len(urls)} URLs")
+            except Exception as e:
+                log_error(e, f"{label} search in search_agent")
+
     all_urls = list(set(all_urls))
-    
-    
+
     if len(all_urls) == 0:
         logger.warning("No URLs found from search providers, trying Wikipedia directly...")
         try:
@@ -132,7 +129,7 @@ def search_agent(state: ResearchState) -> ResearchState:
             log_error(e, "Wikipedia fallback search")
 
     logger.info(f"Search complete. Found {len(all_urls)} unique URLs")
-    
+
     return {
         **state,
         'urls_found': all_urls,
@@ -142,10 +139,11 @@ def search_agent(state: ResearchState) -> ResearchState:
 
 def extraction_agent(state: ResearchState) -> ResearchState:
     """
-    Extracts content from discovered URLs.
+    Extracts content from discovered URLs in parallel.
+    Uses a bounded thread pool so we don't hammer target servers.
     """
     urls = state['urls_found']
-    
+
     if not urls:
         logger.warning("No URLs to extract from")
         return {
@@ -153,28 +151,43 @@ def extraction_agent(state: ResearchState) -> ResearchState:
             'content': [],
             'status': 'extracted'
         }
-    
-    max_urls = SEARCH_CONFIG.get("max_total_urls", 10)
 
-    logger.info(f"Extracting content from {min(len(urls), max_urls)} URLs...")
-    
-    content = []
-    for i, url in enumerate(urls[:max_urls], 1):
-        try:
-            logger.debug(f"[{i}/{min(len(urls), max_urls)}] Extracting: {url[:80]}")
-            extracted = extract_content(url)
-            if extracted['content'] and len(extracted['content']) > 100:
-                content.append(extracted)
-                logger.debug(f"Extracted {len(extracted['content'])} characters")
-            else:
-                logger.debug("Skipped: no content or too short")
-        except Exception as e:
-            log_error(e, f"extraction_agent - {url}")
-            logger.warning(f"Error extracting from URL: {str(e)[:80]}")
-            continue
-    
+    max_urls = SEARCH_CONFIG.get("max_total_urls", 10)
+    # Cap parallel workers: enough to be fast, not so many we get rate-limited
+    max_workers = min(SEARCH_CONFIG.get("extraction_workers", 5), max_urls)
+    urls_to_process = urls[:max_urls]
+
+    logger.info(
+        f"Extracting content from {len(urls_to_process)} URLs "
+        f"using {max_workers} parallel workers..."
+    )
+
+    # Use a dict to preserve insertion order after futures complete
+    results: dict[str, dict] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_url = {
+            executor.submit(extract_content, url): url
+            for url in urls_to_process
+        }
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                extracted = future.result()
+                if extracted['content'] and len(extracted['content']) > 100:
+                    results[url] = extracted
+                    logger.debug(f"Extracted {len(extracted['content'])} chars from {url[:80]}")
+                else:
+                    logger.debug(f"Skipped (too short): {url[:80]}")
+            except Exception as e:
+                log_error(e, f"extraction_agent - {url}")
+                logger.warning(f"Error extracting from URL: {str(e)[:80]}")
+
+    # Restore original URL order so summarization sees a consistent ordering
+    content = [results[url] for url in urls_to_process if url in results]
+
     logger.info(f"Extraction complete. Successfully processed {len(content)} pages")
-    
+
     return {
         **state,
         'content': content,

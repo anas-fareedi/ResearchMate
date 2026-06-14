@@ -89,6 +89,9 @@ SEARCH_CONFIG = {
     "max_content_length": 5000,
     "max_retries": 3,
     "retry_delay": 1,
+    # Number of parallel threads for the extraction phase.
+    # Increase for faster extraction; lower if hitting rate limits.
+    "extraction_workers": 5,
 }
 
 DEFAULT_WEBSITES = [
