@@ -7,13 +7,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
 import json
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 import requests
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from utils import validate_url, rate_limit, log_error
+from utils import validate_url, rate_limit, log_error, logger
 from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
 
 
@@ -69,6 +69,69 @@ def _first_text_value(obj, candidate_keys) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Jina Reader — primary fast extractor
+# ---------------------------------------------------------------------------
+
+def _extract_with_jina(url: str) -> Optional[Dict]:
+    """
+    Fetch clean markdown content via Jina Reader (r.jina.ai).
+    Free tier: 1 M tokens/month. No JS rendering issues, no HTML parsing.
+    Returns a content dict on success, None on any failure.
+    """
+    jina_url = f"https://r.jina.ai/{url}"
+    timeout = SEARCH_CONFIG.get("jina_timeout", 10)
+    max_length = SEARCH_CONFIG.get("max_content_length", 5000)
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+        "X-Return-Format": "markdown",
+        "X-Timeout": str(timeout),
+        # Strip images/links to keep responses lean and fast
+        "X-Remove-Selector": "img, svg, figure",
+    }
+
+    # Optional API key — raises free-tier rate limit from 20 rpm to 200 rpm
+    jina_api_key = API_CONFIG.get("jina_api_key")
+    if jina_api_key:
+        headers["Authorization"] = f"Bearer {jina_api_key}"
+
+    try:
+        response = requests.get(
+            jina_url, headers=headers,
+            timeout=timeout + 3,  # a little slack beyond the Jina-side timeout
+            verify=True
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Jina wraps everything under a "data" key
+        payload = data.get("data") or data
+        title   = (payload.get("title") or "No title").strip()
+        content = (payload.get("content") or "").strip()
+
+        if len(content) < 100:
+            logger.debug(f"Jina returned too little content for {url[:80]}")
+            return None
+
+        logger.debug(f"✓ Jina extracted {len(content)} chars from {url[:80]}")
+        return {
+            "url": url,
+            "title": title,
+            "content": content[:max_length],
+            "extracted_at": datetime.now().isoformat(),
+            "extractor": "jina",
+        }
+    except Exception as e:
+        logger.debug(f"Jina failed for {url[:80]}: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Main entry-point (Jina-first, legacy scraper as fallback)
+# ---------------------------------------------------------------------------
+
 def extract_content(url: str) -> Dict:
     """
     Extract text content from a URL.
@@ -93,6 +156,16 @@ def extract_content(url: str) -> Dict:
             'content': 'URL validation failed',
             'extracted_at': datetime.now().isoformat()
         }
+
+    # ── Jina Reader (fast path) ──────────────────────────────────────────────
+    # Skip Jina for Elsevier API URLs — those need the custom JSON parser below.
+    if "api.elsevier.com" not in normalized_url:
+        jina_result = _extract_with_jina(normalized_url)
+        if jina_result:
+            return jina_result
+        logger.debug(f"Jina failed, falling back to scraper for {normalized_url[:80]}")
+
+    # ── Legacy scraper (fallback) ────────────────────────────────────────────
     try:
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)

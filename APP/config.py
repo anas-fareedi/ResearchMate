@@ -74,6 +74,8 @@ API_CONFIG = {
     "elsevier_api_key": settings.Elsevier_API_KEY,
     "tavily_api_key": settings.TAVILY_API_KEY,
     "semantic_scholar_api_key": settings.SEMANTIC_SCHOLAR,
+    # Jina Reader API key (optional) — raises rate limit from 20 rpm → 200 rpm.
+    "jina_api_key": os.getenv("JINA_API_KEY"),
 }
 
 LLM_CONFIG = {
@@ -92,6 +94,9 @@ SEARCH_CONFIG = {
     # Number of parallel threads for the extraction phase.
     # Increase for faster extraction; lower if hitting rate limits.
     "extraction_workers": 5,
+    # Jina Reader timeout (seconds). Jina itself enforces this server-side.
+    # Keep at 10 — requests beyond this fall back to the legacy scraper.
+    "jina_timeout": 10,
 }
 
 DEFAULT_WEBSITES = [
