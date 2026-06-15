@@ -1,0 +1,7 @@
+# 1
+when upload a pdf contains digits and non extractable data which is not easy to copy from pdf 
+through this error 
+logs = Couldn't reach Q&A backend: API 500: {"detail":"No readable text found in PDF for Q&A"}
+
+# 2
+Insufficient content to perform q&a
