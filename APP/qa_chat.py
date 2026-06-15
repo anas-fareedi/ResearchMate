@@ -66,7 +66,7 @@ class PDFRAGChatbot:
         self.pdf_path = pdf_path
         self.chunks = self._load_chunks(pdf_path)
         if not self.chunks:
-            raise ValueError("No readable text found in PDF for Q&A")
+            raise ValueError("Insufficient content to perform Q&A")
 
         gemini_api_key = validate_api_key(API_CONFIG["gemini_api_key"], "GEMINI_API_KEY")
         self.llm = ChatGoogleGenerativeAI(

@@ -74,10 +74,20 @@ def research(query: str, websites: Optional[List[str]] = None) -> Dict:
         summary_preview = _shorten(result['summary'], width=200, placeholder="...")
         logger.info(f"Summary preview: {summary_preview}")
         
+        # Improvement #3 – Source Transparency: include a clean sources list so
+        # API consumers can display "Source 1 / Source 2 …" with clickable links
+        # without having to parse the PDF or JSON output files.
+        sources = [
+            {"title": item.get("title") or item.get("url", ""), "url": item.get("url", "")}
+            for item in result.get("content", [])
+            if item.get("url")
+        ]
+
         return {
             'json_path': result['json_path'],
             'pdf_path': result['pdf_path'],
-            'summary': result['summary']
+            'summary': result['summary'],
+            'sources': sources,
         }
     except Exception as e:
         log_error(e, "Research workflow error")
