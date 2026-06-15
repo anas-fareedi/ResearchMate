@@ -5,3 +5,57 @@ logs = Couldn't reach Q&A backend: API 500: {"detail":"No readable text found in
 
 # 2
 Insufficient content to perform q&a
+
+#3
+Instead of:
+Research Failed
+show:
+Search provider unavailable
+Please try again later
+
+
+# 4
+
+Progress Tracking
+Currently user waits ~25 seconds.
+Show:
+Planning Research...
+Searching Sources...
+Extracting Content...
+Generating Report...
+Creating PDF...
+Done
+
+# 5
+
+Source Transparency
+Every report should show:
+Source 1
+Source 2
+Source 3
+with clickable links 
+
+# 6
+
+adding the conditions like if content is generated form top paper is not enough then 
+choose bottom paper automatically.
+Atleast 3 pages is full with content including headings and sources and ensure that
+no unneessary text was not in pdf 
+
+# 7 
+
+if User waits 25 seconds then :
+Create research job
+Come back later
+Get notified
+
+# 8 
+
+Add proper security validation.
+Add citations.
+
+# 9
+
+Redis + Background Workers implementation
+
+# 10 

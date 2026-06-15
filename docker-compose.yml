@@ -1,6 +1,20 @@
 version: "3.9"
 
 services:
+  # ── Redis message broker + result backend ─────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: research-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI application ───────────────────────────────────────────────────
   research-assistant:
     build:
       context: .
@@ -11,8 +25,12 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
-      # Persist research outputs
       - ./research_outputs:/app/research_outputs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -20,3 +38,41 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  # ── Celery background worker ──────────────────────────────────────────────
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research-celery-worker
+    restart: unless-stopped
+    # Override the default CMD — run a Celery worker instead of gunicorn.
+    #
+    # -A celery_app          → the module that holds the Celery instance (app = celery_app)
+    # PYTHONPATH=/app/APP    → matches Dockerfile; lets Python find celery_app + tasks directly
+    # --pool=prefork         → Linux default, safe inside Docker (Alpine has fork())
+    # --concurrency=2        → 2 parallel research jobs; raise for more throughput
+    command: >
+      sh -c "PYTHONPATH=/app/APP celery -A celery_app worker
+        --loglevel=info
+        --pool=prefork
+        --concurrency=2
+        --queues=research"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=/app/APP
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./research_outputs:/app/research_outputs
+    healthcheck:
+      # Ping the broker — if it fails, Docker restarts the worker automatically
+      test: ["CMD", "sh", "-c",
+             "PYTHONPATH=/app/APP celery -A celery_app inspect ping --timeout 5 2>&1 | grep -q pong"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 20s

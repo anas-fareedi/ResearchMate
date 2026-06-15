@@ -15,3 +15,35 @@ services:
         value: research-mate
       - key: PYTHON_VERSION
         value: 3.10.19
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: research-redis
+          property: connectionString
+
+  - type: worker
+    name: research-celery-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A APP.celery_app worker --loglevel=info --pool=solo --queues=research
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: research-mate
+      - key: PYTHON_VERSION
+        value: 3.10.19
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: research-redis
+          property: connectionString
+
+  - type: redis
+    name: research-redis
+    plan: free
+    ipAllowList: []

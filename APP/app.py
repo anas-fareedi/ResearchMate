@@ -14,18 +14,25 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+import asyncio
+import ipaddress
+import json
 import re
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
+from urllib.parse import urlparse
 from uuid import uuid4
 from supabase import create_client, Client
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from qa_chat import PDFRAGChatbot
 from research import research
@@ -48,10 +55,20 @@ def _api_token_dependency(x_api_token: Optional[str] = Header(default=None)):
 
 
 # ---------------------------------------------------------------------------
+# Rate limiter (slowapi)
+# ---------------------------------------------------------------------------
+_limiter = Limiter(key_func=get_remote_address)
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app + CORS
 # ---------------------------------------------------------------------------
 _app_dependencies = [Depends(_api_token_dependency)] if settings.API_ACCESS_TOKEN else []
 app = FastAPI(title="Research Assistant API", version="1.0.0", dependencies=_app_dependencies)
+
+# Attach the limiter and its exception handler
+app.state.limiter = _limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _raw_allowed_origins = settings.CORS_ALLOW_ORIGINS
 _allowed_origins = [o.strip() for o in _raw_allowed_origins.split(",") if o.strip()]
@@ -68,6 +85,74 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+
+# Private / loopback IP ranges that website URLs must NOT resolve to
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+_URL_RE = re.compile(
+    r"^https?://"                   # must start with http:// or https://
+    r"[a-zA-Z0-9\-\.]+"             # hostname
+    r"(\.[a-zA-Z]{2,})?"            # TLD
+    r"(:[0-9]{1,5})?"               # optional port
+    r"(/[^\s]*)?$",                 # optional path (no whitespace)
+    re.IGNORECASE,
+)
+
+# Characters that should never appear in a research query
+_QUERY_BLACKLIST_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _validate_website_url(url: str) -> str:
+    """
+    Validate a user-supplied website URL.
+
+    Rejects:
+    - Non-HTTP(S) schemes (file://, ftp://, etc.)
+    - Bare IP addresses that fall in private/loopback ranges (SSRF guard)
+    - URLs that don't match the basic URL pattern
+
+    Returns the validated URL, or raises HTTPException 422.
+    """
+    if not _URL_RE.match(url):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid website URL: '{url}'. Must be a valid http(s):// URL.",
+        )
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    # SSRF guard: reject bare private-IP hostnames
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if any(addr in net for net in _PRIVATE_NETWORKS):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Website URL '{url}' resolves to a private/reserved address.",
+            )
+    except ValueError:
+        pass  # hostname is a domain name — allowed
+    return url
+
+
+def _sanitize_query(query: str) -> str:
+    """
+    Strip null-bytes, C0 control characters, and excessive whitespace from
+    the research query so they cannot be injected into LLM prompts or logs.
+    """
+    query = _QUERY_BLACKLIST_RE.sub("", query)
+    # Collapse runs of whitespace (keep single spaces / newlines)
+    query = re.sub(r" {2,}", " ", query).strip()
+    return query
+
+
+# ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
 
@@ -76,6 +161,40 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000)
     # H6 – cap websites list to prevent DoS via thousands of scrape targets
     websites: Optional[List[str]] = Field(default=None, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_fields(self):
+        # Sanitize query
+        self.query = _sanitize_query(self.query)
+        if not self.query:
+            raise ValueError("query must not be empty after sanitization")
+        # Validate each website URL
+        if self.websites:
+            validated = []
+            for url in self.websites:
+                cleaned = url.strip()
+                if not cleaned or cleaned.lower() == "string":
+                    continue
+                try:
+                    validated.append(_validate_website_url(cleaned))
+                except HTTPException as exc:
+                    raise ValueError(exc.detail) from exc
+            self.websites = validated if validated else None
+        return self
+
+
+class JobSubmitResponse(BaseModel):
+    job_id: str
+    status: str  # always "queued" on creation
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str              # queued | running | completed | failed
+    message: Optional[str] = None
+    progress: Optional[int] = None   # 0-100
+
 
 
 class QARequest(BaseModel):
@@ -256,8 +375,13 @@ def run_research(request: QueryRequest):
         result = research(request.query, request.websites)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Research workflow failed: {exc}")
+    except Exception:
+        # Improvement #1 – surface a user-friendly message instead of a raw
+        # exception traceback so the client can display actionable text.
+        raise HTTPException(
+            status_code=503,
+            detail="Search provider unavailable. Please try again later.",
+        )
 
     pdf_path = result.get("pdf_path")
     if pdf_path and Path(pdf_path).exists():
@@ -273,6 +397,267 @@ def run_research(request: QueryRequest):
         result["local"] = local_doc
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Improvement #2 – Server-Sent Events endpoint for real-time progress
+# ---------------------------------------------------------------------------
+
+_PROGRESS_STAGES = [
+    ("planning",    "Planning Research..."),
+    ("searching",   "Searching Sources..."),
+    ("extracting",  "Extracting Content..."),
+    ("summarizing", "Generating Report..."),
+    ("saving",      "Creating PDF..."),
+    ("done",        "Done"),
+]
+
+
+async def _sse_event(data: dict) -> str:
+    """Format a dict as an SSE data line."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+async def _research_stream_generator(
+    query: str, websites: Optional[List[str]]
+) -> AsyncGenerator[str, None]:
+    """Run the research workflow in a thread and stream progress via SSE."""
+    import concurrent.futures
+
+    loop = asyncio.get_event_loop()
+    result_container: Dict = {}
+    error_container: Dict = {}
+
+    # Stage indices so we can emit progress events as each stage completes
+    stage_names = [s[0] for s in _PROGRESS_STAGES]
+
+    # Emit the first stage immediately so the client sees activity right away
+    yield await _sse_event({"stage": "planning", "message": "Planning Research...", "progress": 0})
+
+    def _run() -> dict:
+        """Blocking call – executed in a thread pool so the event loop stays free."""
+        return research(query, websites)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = loop.run_in_executor(pool, _run)
+
+        # While the research task is running, emit heartbeat progress events
+        # that map roughly to the five workflow stages.
+        # Each stage is ~5 s apart (total ≈ 25 s observed).  We advance through
+        # the stages pseudo-sequentially so the UI looks alive.
+        stage_index = 1  # 0 was already emitted above
+        elapsed = 0.0
+        stage_interval = 5.0  # seconds between synthetic stage advances
+
+        while not future.done():
+            await asyncio.sleep(1.0)
+            elapsed += 1.0
+
+            # Advance to the next stage label on a timer
+            next_stage_time = stage_index * stage_interval
+            if elapsed >= next_stage_time and stage_index < len(_PROGRESS_STAGES) - 1:
+                stage_key, stage_msg = _PROGRESS_STAGES[stage_index]
+                progress = int((stage_index / (len(_PROGRESS_STAGES) - 1)) * 100)
+                yield await _sse_event({"stage": stage_key, "message": stage_msg, "progress": progress})
+                stage_index += 1
+
+        # Collect result or error
+        try:
+            result = future.result()
+            result_container.update(result)
+        except Exception as exc:
+            error_container["error"] = str(exc)
+
+    if error_container:
+        yield await _sse_event({
+            "stage": "error",
+            "message": "Search provider unavailable. Please try again later.",
+            "progress": 0,
+        })
+        return
+
+    # Emit the "done" event with the full result payload (including sources)
+    yield await _sse_event({
+        "stage": "done",
+        "message": "Done",
+        "progress": 100,
+        "result": result_container,
+    })
+
+
+@app.post("/research/stream")
+async def run_research_stream(request: QueryRequest):
+    """Stream research progress as Server-Sent Events (text/event-stream).
+
+    Clients should listen to this endpoint instead of POST /research when they
+    want real-time progress feedback.  Each event is a JSON object with at least
+    ``stage`` and ``message`` fields.  The final ``done`` event also carries the
+    full ``result`` payload (same shape as POST /research).
+    """
+    return StreamingResponse(
+        _research_stream_generator(request.query, request.websites),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Async Job Queue  –  POST /jobs, GET /jobs/{id}, GET /jobs/{id}/result
+# ---------------------------------------------------------------------------
+# The Celery import is deferred and guarded so the API still starts
+# (with degraded job-queue support) even when Redis is not available.
+
+_celery_available = False
+try:
+    from tasks import run_research_task
+    from celery.result import AsyncResult
+    from celery_app import celery_app as _celery_app
+    _celery_available = True
+except Exception as _celery_import_err:   # noqa: BLE001
+    logger.warning(
+        "Celery/Redis not available — /jobs endpoints will return 503. "
+        "Start Redis and install celery[redis] to enable async jobs. "
+        "Error: %s", _celery_import_err,
+    )
+
+
+def _require_celery():
+    if not _celery_available:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Async job queue is not available. "
+                "Ensure Redis is running and celery[redis] is installed."
+            ),
+        )
+
+
+_CELERY_TO_API_STATUS = {
+    "PENDING":  "queued",
+    "RECEIVED": "queued",
+    "STARTED":  "running",
+    "PROGRESS": "running",
+    "RETRY":    "running",
+    "SUCCESS":  "completed",
+    "FAILURE":  "failed",
+    "REVOKED":  "failed",
+}
+
+_RATE_LIMIT = f"{settings.RATE_LIMIT_PER_MINUTE}/minute"
+
+
+@app.post("/jobs", response_model=JobSubmitResponse, status_code=202)
+@_limiter.limit(_RATE_LIMIT)
+async def submit_job(request: Request, body: QueryRequest):
+    """
+    Submit a research job and return a job_id immediately.
+
+    The heavy work runs inside a Celery worker.  Poll GET /jobs/{job_id}
+    for status updates and GET /jobs/{job_id}/result for the final report.
+
+    Rate-limited to RATE_LIMIT_PER_MINUTE submissions per IP per minute.
+    """
+    _require_celery()
+    task = run_research_task.apply_async(
+        kwargs={"query": body.query, "websites": body.websites},
+        queue="research",
+    )
+    logger.info("Job submitted: %s  query=%.80s", task.id, body.query)
+    return JobSubmitResponse(
+        job_id=task.id,
+        status="queued",
+        message="Research job created. Poll GET /jobs/{job_id} for progress.",
+    )
+
+
+@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job_status(job_id: str):
+    """
+    Poll the status of a submitted research job.
+
+    Returns one of: queued | running | completed | failed
+    When status is 'running', an optional progress (0-100) and message are
+    included from the PROGRESS meta dict emitted by the Celery task.
+    """
+    _require_celery()
+    # Validate job_id to prevent arbitrary Redis key probing
+    if not re.match(r"^[a-fA-F0-9\-]{8,64}$", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format")
+
+    result = AsyncResult(job_id, app=_celery_app)
+    celery_state = result.state          # e.g. 'PENDING', 'PROGRESS', 'SUCCESS'
+    api_status = _CELERY_TO_API_STATUS.get(celery_state, "queued")
+
+    progress: Optional[int] = None
+    message: Optional[str] = None
+
+    if celery_state == "PROGRESS":
+        meta = result.info or {}
+        progress = meta.get("progress")
+        message = meta.get("message")
+    elif celery_state == "SUCCESS":
+        progress = 100
+        message = "Done"
+    elif celery_state == "FAILURE":
+        message = "Search provider unavailable. Please try again later."
+
+    return JobStatusResponse(
+        job_id=job_id,
+        status=api_status,
+        message=message,
+        progress=progress,
+    )
+
+
+@app.get("/jobs/{job_id}/result")
+def get_job_result(job_id: str):
+    """
+    Fetch the final result of a completed research job.
+
+    Returns HTTP 404 if the job is not yet complete, and HTTP 200 with the
+    same payload shape as POST /research on success (json_path, pdf_path,
+    summary, sources).
+    """
+    _require_celery()
+    if not re.match(r"^[a-fA-F0-9\-]{8,64}$", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format")
+
+    result = AsyncResult(job_id, app=_celery_app)
+
+    if result.state == "FAILURE":
+        raise HTTPException(
+            status_code=503,
+            detail="Search provider unavailable. Please try again later.",
+        )
+    if result.state != "SUCCESS":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job '{job_id}' is not yet complete (status: {result.state.lower()}).",
+        )
+
+    payload = result.get(propagate=False) or {}
+
+    # Optionally persist the PDF locally (mirrors the logic in POST /research)
+    pdf_path = payload.get("pdf_path")
+    if pdf_path and Path(pdf_path).exists():
+        try:
+            local_doc = _save_pdf_locally(
+                file_path=pdf_path,
+                filename=Path(pdf_path).name,
+                metadata={
+                    "job_id": job_id,
+                    "summary": payload.get("summary", ""),
+                    "source": "generated",
+                },
+            )
+            payload["local"] = local_doc
+        except Exception as exc:
+            logger.warning("Could not persist PDF locally for job %s: %s", job_id, exc)
+
+    return payload
 
 
 @app.post("/qa")
@@ -303,6 +688,8 @@ def run_qa(request: QARequest):
         return {"answer": answer}
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
