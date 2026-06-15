@@ -271,41 +271,61 @@ def saving_agent(state: ResearchState) -> ResearchState:
     """
     Saves the research results to JSON and PDF files.
     """
+    from datetime import datetime as _dt
+
     query = state['query']
     content = state['content']
     summary = state['summary']
-    
+
+    # ── Build citations list ───────────────────────────────────────────────
+    # Each citation is a numbered reference entry that will appear in both
+    # the PDF References section and the returned API payload.
+    access_date = _dt.utcnow().strftime("%Y-%m-%d")
+    citations = []
+    for i, item in enumerate(content, start=1):
+        url = (item.get('url') or '').strip()
+        title = (item.get('title') or url or f'Source {i}').strip()
+        if not url:
+            continue
+        citations.append({
+            'number': i,
+            'title': title,
+            'url': url,
+            'accessed': access_date,
+        })
+
     data = {
         'query': query,
         'search_terms': state.get('search_terms', []),
         'websites_searched': state['websites'],
         'urls_found': state['urls_found'],
         'content': content,
-        'summary': summary
+        'summary': summary,
+        'citations': citations,
     }
-    
+
     json_path = ""
     pdf_path = ""
-    
+
     try:
         json_path = save_to_json(data, query)
     except Exception as e:
         log_error(e, "saving_agent - JSON save failed")
         logger.error(f"Failed to save JSON: {e}")
-    
+
     try:
         pdf_path = save_to_pdf(data, query, summary)
     except Exception as e:
         log_error(e, "saving_agent - PDF save failed")
         logger.error(f"Failed to save PDF: {e}")
-    
+
     if json_path and pdf_path:
         logger.info("All output files saved successfully")
     elif json_path or pdf_path:
         logger.warning("Partial save: some output files could not be saved")
     else:
         logger.error("Failed to save all output files")
-    
+
     return {
         **state,
         'json_path': json_path,
