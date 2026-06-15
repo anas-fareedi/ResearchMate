@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str | None = Field(default=None, description="Supabase API key (anon or service_role)")
     SUPABASE_BUCKET: str = Field(default="ResearchMate", description="Supabase storage bucket name")
 
+    # Redis / Celery
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis broker + result backend URL")
+
+    # Rate limiting (requests per minute per IP on job-submission endpoints)
+    RATE_LIMIT_PER_MINUTE: int = Field(default=10, description="Max research job submissions per minute per IP")
+
     # LangSmith Settings
     LANGCHAIN_TRACING_V2: str = Field(default="false", description="Whether to enable LangChain tracing")
     LANGCHAIN_ENDPOINT: str = Field(default="https://api.smith.langchain.com", description="LangChain API endpoint")
@@ -85,18 +91,23 @@ LLM_CONFIG = {
 }
 
 SEARCH_CONFIG = {
-    "max_urls_per_website": 3,
-    "max_total_urls": 10,
+    "max_urls_per_website": 5,
+    # Raised from 10 → 20 so the PDF fallback has more raw sources to draw from
+    "max_total_urls": 20,
     "request_timeout": 15,
     "max_content_length": 5000,
     "max_retries": 3,
     "retry_delay": 1,
     # Number of parallel threads for the extraction phase.
     # Increase for faster extraction; lower if hitting rate limits.
-    "extraction_workers": 5,
+    "extraction_workers": 8,
     # Jina Reader timeout (seconds). Jina itself enforces this server-side.
     # Keep at 10 — requests beyond this fall back to the legacy scraper.
     "jina_timeout": 10,
+    # Minimum estimated pages the PDF must reach before the fallback loop stops.
+    "pdf_min_pages": 3,
+    # Characters of source body text to include per source in the PDF.
+    "pdf_chars_per_source": 3000,
 }
 
 DEFAULT_WEBSITES = [
@@ -117,9 +128,10 @@ OUTPUT_CONFIG = {
 }
 
 SUMMARY_CONFIG = {
-    "max_sources_to_summarize": 3,
-    "max_content_per_source": 700,
-    "summary_length": "180-250 words",
+    # Raised from 3 → 5 to produce a richer, more comprehensive AI summary
+    "max_sources_to_summarize": 5,
+    "max_content_per_source": 1000,
+    "summary_length": "300-450 words",
 }
 
 USER_AGENT = (
