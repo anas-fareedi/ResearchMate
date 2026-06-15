@@ -19,3 +19,9 @@ uvicorn
 python-multipart
 supabase
 langsmith
+# ── Async job queue ───────────────────────────────────────────────────────
+celery[redis]>=5.3
+redis>=5.0
+# ── Rate limiting ─────────────────────────────────────────────────────────
+slowapi>=0.1.9
+limits>=3.6
