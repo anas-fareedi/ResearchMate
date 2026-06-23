@@ -1,7 +1,7 @@
 # Research Assistant
 
 ### check out Frontend :
-https://researchmate-ui.vercel.app/
+https://researchmate.anasfareedi.in/
 
 ### check out Backend : https://researchmate-1yzg.onrender.com
 
