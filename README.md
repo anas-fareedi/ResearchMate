@@ -1,9 +1,8 @@
 # Research Assistant
 
-### check out Frontend :
-https://researchmate.anasfareedi.in/
+### Frontend : https://researchmate.anasfareedi.in/
 
-### check out Backend : https://researchmate-1yzg.onrender.com
+### Backend : https://researchmate-1yzg.onrender.com
 
 ### Langsmith : https://smith.langchain.com/o/548d39a3-d580-4f65-a929-f7cb81ee48bb/projects/p/ef5b9c1c-8ece-4343-afcc-c951f4ae9b67?timeModel=%7B%22duration%22%3A%221d%22%7D
 
