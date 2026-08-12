@@ -175,7 +175,7 @@ def validate_url(url: str) -> bool:
                 logger.warning(f"Blocked private/local URL: {url}")
                 return False
 
-        # Resolve hostname to check actual IPs to prevent DNS rebinding SSRF
+        # Resolve hostname to mitigate DNS rebinding SSRF (note: does not pin the IP used by subsequent HTTP requests)
         try:
             addr_infos = socket.getaddrinfo(host_only, None)
             for info in addr_infos:
