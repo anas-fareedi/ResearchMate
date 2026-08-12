@@ -430,13 +430,13 @@ async def _research_stream_generator(
     # lifecycle issues when the client disconnects mid-stream.
     future = loop.run_in_executor(None, _run)
 
-        # While the research task is running, emit heartbeat progress events
-        # that map roughly to the five workflow stages.
-        # Each stage is ~5 s apart (total ≈ 25 s observed).  We advance through
-        # the stages pseudo-sequentially so the UI looks alive.
-        stage_index = 1  # 0 was already emitted above
-        elapsed = 0.0
-        stage_interval = 5.0  # seconds between synthetic stage advances
+    # While the research task is running, emit heartbeat progress events
+    # that map roughly to the five workflow stages.
+    # Each stage is ~5 s apart (total ≈ 25 s observed).  We advance through
+    # the stages pseudo-sequentially so the UI looks alive.
+    stage_index = 1  # 0 was already emitted above
+    elapsed = 0.0
+    stage_interval = 5.0  # seconds between synthetic stage advances
 
     while not future.done():
         await asyncio.sleep(1.0)
