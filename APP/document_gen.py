@@ -32,9 +32,6 @@ _CHARS_PER_LINE = 85
 _LINES_PER_PAGE = int(_A4_BODY_HEIGHT_MM / _LINE_HEIGHT_MM)  # ≈ 48
 
 
-def _estimate_pages(pdf: FPDF) -> float:
-    """Return estimated total pages (current page + leftover on current page)."""
-    return pdf.page_no()
 
 
 class PDFReport(FPDF):

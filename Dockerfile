@@ -17,8 +17,9 @@ RUN pip install --upgrade pip && \
 # Copy project
 COPY APP /app/APP
 
-# Set non-root user for security
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Create output directory and set non-root user for security
+RUN mkdir -p /app/research_outputs && \
+    useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose port

@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
     Elsevier_API_KEY: str | None = Field(default=None)
     TAVILY_API_KEY: str | None = Field(default=None)
     SEMANTIC_SCHOLAR: str | None = Field(default=None)
+    JINA_API_KEY: str | None = Field(default=None, description="Jina Reader API key (raises rate limit 20→200 rpm)")
 
     # Supabase Settings
     SUPABASE_URL: str | None = Field(default=None, description="Supabase project URL")
@@ -46,23 +48,24 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Module-level logger (utils.setup_logging hasn't run yet at import time,
+# so we use the stdlib logger directly; it will be reconfigured later).
+_logger = logging.getLogger(__name__)
+
 # Validate required keys early with a clear human-readable error
 if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.startswith("your-"):
-    print(
-        "\nERROR: GEMINI_API_KEY is not configured.\n"
-        "  1. Open the .env file in the project root\n"
-        "  2. Set GEMINI_API_KEY=<your real key>\n"
-        "  Get a key at: https://makersuite.google.com/app/apikey\n",
-        file=sys.stderr,
+    _logger.critical(
+        "GEMINI_API_KEY is not configured. "
+        "Set GEMINI_API_KEY=<your real key> in .env. "
+        "Get a key at: https://makersuite.google.com/app/apikey"
     )
     sys.exit(1)
 
 # Validate LangSmith tracing configuration
 if settings.LANGCHAIN_TRACING_V2.lower() == "true":
     if not settings.LANGCHAIN_API_KEY:
-        print(
-            "WARNING: LangSmith tracing is set to 'true' but LANGCHAIN_API_KEY is not configured.",
-            file=sys.stderr,
+        _logger.warning(
+            "LangSmith tracing is set to 'true' but LANGCHAIN_API_KEY is not configured."
         )
     else:
         # Explicitly update environment variables so LangChain core detects them
@@ -70,7 +73,7 @@ if settings.LANGCHAIN_TRACING_V2.lower() == "true":
         os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGCHAIN_ENDPOINT
         os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
         os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
-        print(f"LangSmith tracing enabled - Project: '{settings.LANGCHAIN_PROJECT}'")
+        _logger.info("LangSmith tracing enabled - Project: '%s'", settings.LANGCHAIN_PROJECT)
 
 # ---------------------------------------------------------------------------
 # Legacy dict-style constants kept for backward compat with Agents/document_gen
@@ -81,7 +84,7 @@ API_CONFIG = {
     "tavily_api_key": settings.TAVILY_API_KEY,
     "semantic_scholar_api_key": settings.SEMANTIC_SCHOLAR,
     # Jina Reader API key (optional) — raises rate limit from 20 rpm → 200 rpm.
-    "jina_api_key": os.getenv("JINA_API_KEY"),
+    "jina_api_key": settings.JINA_API_KEY,
 }
 
 LLM_CONFIG = {
@@ -112,7 +115,6 @@ SEARCH_CONFIG = {
 
 DEFAULT_WEBSITES = [
     "https://scholar.google.com",
-    "https://www.researchgate.net",
     "https://arxiv.org",
     "https://www.sciencedirect.com",
 ]

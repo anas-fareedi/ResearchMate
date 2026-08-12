@@ -10,23 +10,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import validate_url, rate_limit, log_error
+from utils import validate_url, rate_limit, log_error, logger
 from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
+from scrapping.http import fetch_with_retry as _fetch_with_retry
 
 
-@retry(
-    stop=stop_after_attempt(SEARCH_CONFIG.get("max_retries", 3)),
-    wait=wait_exponential(multiplier=SEARCH_CONFIG.get("retry_delay", 1), min=1, max=10),
-    retry=retry_if_exception_type((requests.RequestException, ConnectionError))
-)
-@rate_limit
-def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
-    """Fetch URL with retry logic and rate limiting."""
-    # M5 – never allow callers to disable SSL certificate verification
-    kwargs.pop('verify', None)
-    response = requests.request(method, url, headers=headers, timeout=timeout, verify=True, **kwargs)
-    response.raise_for_status()
-    return response
 
 
 def _clean_discovered_url(raw_url: str) -> str:
@@ -121,10 +109,10 @@ def search_website(website: str, query: str, max_results: int = 5) -> List[str]:
                         if len(urls) >= max_results:
                             break
         
-        print(f"✓ Found {len(urls)} URLs from {website}")
+        logger.info(f"Found {len(urls)} URLs from {website}")
     except Exception as e:
         log_error(e, f"Error searching {website}")
-        print(f"✗ Error searching {website}: {str(e)}")
+        logger.warning(f"Error searching {website}: {str(e)}")
     
     return urls
 
@@ -162,10 +150,10 @@ def search_with_google(query: str, num_results: int = 5) -> List[str]:
                         urls.append(actual_url)
                         if len(urls) >= num_results:
                             break
-        print(f"✓ Google search found {len(urls)} URLs")
+        logger.info(f"Google search found {len(urls)} URLs")
     except Exception as e:
         log_error(e, "Google search failed")
-        print(f"✗ Google search failed: {str(e)}")
+        logger.warning(f"Google search failed: {str(e)}")
     return urls
 
 
@@ -210,16 +198,16 @@ def search_with_tavily(query: str, num_results: int = 5) -> List[str]:
                 if len(urls) >= num_results:
                     break
 
-        print(f"✓ Tavily search found {len(urls)} URLs")
+        logger.info(f"Tavily search found {len(urls)} URLs")
     except (requests.RequestException, requests.ConnectionError) as e:
         log_error(e, "Tavily API request failed")
-        print(f"✗ Tavily search API error: {str(e)}")
+        logger.warning(f"Tavily search API error: {str(e)}")
     except ValueError as e:
         log_error(e, "Tavily response parsing error")
-        print(f"✗ Tavily response parse error: {str(e)}")
+        logger.warning(f"Tavily response parse error: {str(e)}")
     except Exception as e:
         log_error(e, "Tavily search failed")
-        print(f"✗ Tavily search failed: {str(e)}")
+        logger.warning(f"Tavily search failed: {str(e)}")
     return urls
 
 
@@ -246,7 +234,7 @@ def get_wikipedia_urls(query: str) -> List[str]:
         response = _fetch_with_retry(wiki_url, headers, timeout)
         if response.status_code == 200 and 'Wikipedia does not have an article' not in response.text:
             urls.append(wiki_url)
-            print(f"✓ Found Wikipedia article: {wiki_url}")
+            logger.info(f"Found Wikipedia article: {wiki_url}")
         else:
             response = _fetch_with_retry(search_url, headers, timeout)
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -259,13 +247,13 @@ def get_wikipedia_urls(query: str) -> List[str]:
                     if validate_url(full_url):
                         urls.append(full_url)
             
-            print(f"✓ Found {len(urls)} Wikipedia URLs from search")
+            logger.info(f"Found {len(urls)} Wikipedia URLs from search")
     except (requests.RequestException, requests.ConnectionError, requests.Timeout) as e:
         log_error(e, "Wikipedia HTTP request failed")
-        print(f"✗ Wikipedia request error: {str(e)}")
+        logger.warning(f"Wikipedia request error: {str(e)}")
     except Exception as e:
         log_error(e, "Wikipedia search failed")
-        print(f"✗ Wikipedia search failed: {str(e)}")
+        logger.warning(f"Wikipedia search failed: {str(e)}")
     return urls
 
 
@@ -294,7 +282,7 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
             root = ET.fromstring(response.content)
         except ET.ParseError as xml_error:
             log_error(xml_error, "ArXiv XML parse error")
-            print(f"✗ Failed to parse ArXiv XML response: {str(xml_error)}")
+            logger.warning(f"Failed to parse ArXiv XML response: {str(xml_error)}")
             return urls
         
         # Extract paper entries - use namespace-aware parsing
@@ -315,13 +303,13 @@ def search_arxiv(query: str, max_results: int = 5) -> List[str]:
                     if arxiv_id:
                         urls.append(f"https://arxiv.org/abs/{arxiv_id}")
         
-        print(f"✓ Found {len(urls)} ArXiv papers")
+        logger.info(f"Found {len(urls)} ArXiv papers")
     except ET.ParseError as e:
         log_error(e, "ArXiv XML parsing failed")
-        print(f"✗ ArXiv XML parsing failed: {str(e)}")
+        logger.warning(f"ArXiv XML parsing failed: {str(e)}")
     except Exception as e:
         log_error(e, "ArXiv search failed")
-        print(f"✗ ArXiv search failed: {str(e)}")
+        logger.warning(f"ArXiv search failed: {str(e)}")
     return urls
 
 
@@ -365,7 +353,7 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                     urls.append(paper_url)
                     if len(urls) >= max_results:
                         break
-            print(f"✓ Found {len(urls)} Semantic Scholar papers (API)")
+            logger.info(f"Found {len(urls)} Semantic Scholar papers (API)")
             return urls
         except (requests.RequestException, requests.Timeout) as e:
             log_error(e, "Semantic Scholar API request failed, using web fallback")
@@ -374,7 +362,7 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
 
     # Fallback to web search scraping
     try:
-        search_url = f"https://www.semanticscholar.org/search?q={query.replace(' ', '+')}&sort=relevance"
+        search_url = f"https://www.semanticscholar.org/search?{urlencode({'q': query, 'sort': 'relevance'})}"
         headers = {'User-Agent': USER_AGENT}
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
 
@@ -393,13 +381,13 @@ def search_semantic_scholar(query: str, max_results: int = 5) -> List[str]:
                     if len(urls) >= max_results:
                         break
 
-        print(f"✓ Found {len(urls)} Semantic Scholar papers")
+        logger.info(f"Found {len(urls)} Semantic Scholar papers")
     except (requests.RequestException, requests.Timeout) as e:
         log_error(e, "Semantic Scholar web search request failed")
-        print(f"✗ Semantic Scholar request error: {str(e)}")
+        logger.warning(f"Semantic Scholar request error: {str(e)}")
     except Exception as e:
         log_error(e, "Semantic Scholar search failed")
-        print(f"✗ Semantic Scholar search failed: {str(e)}")
+        logger.warning(f"Semantic Scholar search failed: {str(e)}")
     return urls
 
 
@@ -419,8 +407,7 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
     
     api_key = API_CONFIG.get("elsevier_api_key")
     if not api_key:
-        print("  Elsevier API key not found. Set Elsevier_API_KEY in .env file")
-        print("   Get your key from: https://dev.elsevier.com/")
+        logger.info("Elsevier API key not found. Set Elsevier_API_KEY in .env file")
         return urls
     
     try:
@@ -439,9 +426,10 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
         timeout = SEARCH_CONFIG.get("request_timeout", 15)
         
         response = _fetch_with_retry(
-            f"{api_url}?{'&'.join(f'{k}={v}' for k, v in params.items())}",
+            api_url,
             headers,
-            timeout
+            timeout,
+            params=params
         )
         data = response.json()
         
@@ -481,21 +469,21 @@ def search_elsevier(query: str, max_results: int = 5) -> List[str]:
                         if validate_url(abstract_url):
                             urls.append(abstract_url)
         
-        print(f"✓ Found {len(urls)} Elsevier/ScienceDirect papers")
+        logger.info(f"Found {len(urls)} Elsevier/ScienceDirect papers")
         
         if len(urls) == 0:
-            print("   Note: Some papers may require institutional access")
+            logger.info("Note: Some papers may require institutional access")
         
     except requests.exceptions.HTTPError as e:
         if e.response and e.response.status_code == 401:
-            print("✗ Elsevier API authentication failed. Check your Elsevier_API_KEY")
+            logger.warning("Elsevier API authentication failed. Check your Elsevier_API_KEY")
         elif e.response and e.response.status_code == 429:
-            print("✗ Elsevier API rate limit exceeded. Please wait and try again")
+            logger.warning("Elsevier API rate limit exceeded. Please wait and try again")
         else:
             log_error(e, "Elsevier search failed")
-            print(f"✗ Elsevier search failed: HTTP {e.response.status_code if e.response else 'error'}")
+            logger.warning(f"Elsevier search failed: HTTP {e.response.status_code if e.response else 'error'}")
     except Exception as e:
         log_error(e, "Elsevier search failed")
-        print(f"✗ Elsevier search failed: {str(e)}")
+        logger.warning(f"Elsevier search failed: {str(e)}")
     
     return urls

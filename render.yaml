@@ -12,7 +12,7 @@ services:
       - key: SUPABASE_KEY
         sync: false
       - key: SUPABASE_BUCKET
-        value: research-mate
+        value: ResearchMate
       - key: PYTHON_VERSION
         value: 3.10.19
       - key: REDIS_URL
@@ -34,7 +34,7 @@ services:
       - key: SUPABASE_KEY
         sync: false
       - key: SUPABASE_BUCKET
-        value: research-mate
+        value: ResearchMate
       - key: PYTHON_VERSION
         value: 3.10.19
       - key: REDIS_URL

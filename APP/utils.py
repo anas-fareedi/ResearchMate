@@ -106,6 +106,8 @@ def validate_api_key(api_key: Optional[str], key_name: str = "API_KEY") -> str:
     return api_key.strip()
 
 
+import socket
+
 def validate_url(url: str) -> bool:
     """
     Validate URL to prevent SSRF and other injection attacks.
@@ -145,14 +147,6 @@ def validate_url(url: str) -> bool:
 
         host_only = _normalize_hostname(hostname)
 
-        try:
-            host_ip = ipaddress.ip_address(host_only)
-            if host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local or host_ip.is_reserved or host_ip.is_multicast or host_ip.is_unspecified:
-                logger.warning(f"Blocked private/local IP URL: {url}")
-                return False
-        except ValueError:
-            pass
-        
         # Bug #17 - SSRF Bypass via Integer IPs (e.g. 2130706433 -> 127.0.0.1)
         # Block raw integer hostnames which browsers/requests evaluate as IP addresses.
         if host_only.isdigit():
@@ -175,11 +169,30 @@ def validate_url(url: str) -> bool:
         ]
         
         for blocked in blocked_hosts:
-            # L1 \u2013 only exact-match or subdomain suffix; 'startswith' is too
+            # L1 – only exact-match or subdomain suffix; 'startswith' is too
             #       broad and would incorrectly block 'localhost.evil.com'.
             if host_only == blocked or host_only.endswith(f".{blocked}"):
                 logger.warning(f"Blocked private/local URL: {url}")
                 return False
+
+        # Resolve hostname to check actual IPs to prevent DNS rebinding SSRF
+        try:
+            addr_infos = socket.getaddrinfo(host_only, None)
+            for info in addr_infos:
+                ip_str = info[4][0]
+                ip_obj = ipaddress.ip_address(ip_str)
+                if (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or 
+                        ip_obj.is_reserved or ip_obj.is_multicast or ip_obj.is_unspecified):
+                    logger.warning(f"Blocked private/local IP URL ({ip_str}): {url}")
+                    return False
+                # Also check CGNAT range (100.64.0.0/10)
+                cgnat = ipaddress.ip_network("100.64.0.0/10")
+                if ip_obj in cgnat:
+                    logger.warning(f"Blocked CGNAT IP URL ({ip_str}): {url}")
+                    return False
+        except socket.gaierror:
+            logger.warning(f"DNS resolution failed for hostname: {host_only}")
+            return False
         
         # Check for data: URLs and other potentially dangerous schemes hidden in URL
         if 'data:' in url or 'javascript:' in url or 'file:' in url:
@@ -196,7 +209,7 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def sanitize_query(query: str, max_length: int = 500) -> str:
+def sanitize_query(query: str, max_length: int = 2000) -> str:
     """
     Sanitize user query to prevent injection attacks.
     
@@ -286,3 +299,19 @@ def log_error(error: Exception, context: str = ""):
         logger.error(f"{context}: {type(error).__name__}: {str(error)}")
     else:
         logger.error(f"{type(error).__name__}: {str(error)}")
+
+
+def update_celery_progress(stage: str, message: str, progress: int):
+    """Update progress state if running within a Celery task context."""
+    try:
+        from celery import current_task
+        if current_task and getattr(current_task, "request", None) and current_task.request.id:
+            current_task.update_state(
+                state="PROGRESS",
+                meta={"stage": stage, "message": message, "progress": progress}
+            )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(f"Failed to update Celery task state: {e}")
+
