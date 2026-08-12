@@ -15,14 +15,12 @@ if sys.platform == "win32":
         pass
 
 import asyncio
-import ipaddress
 import json
 import re
 import shutil
 import tempfile
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional
-from urllib.parse import urlparse
 from uuid import uuid4
 from supabase import create_client, Client
 
@@ -33,11 +31,13 @@ from pydantic import BaseModel, Field, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from qa_chat import PDFRAGChatbot
 from research import research
 from config import settings
-from utils import logger
+from utils import logger, validate_url
 
 # ---------------------------------------------------------------------------
 # Load .env from project root is handled by pydantic-settings in config.py
@@ -85,26 +85,23 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Security helpers
+# Security headers middleware
 # ---------------------------------------------------------------------------
 
-# Private / loopback IP ranges that website URLs must NOT resolve to
-_PRIVATE_NETWORKS = [
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-]
-_URL_RE = re.compile(
-    r"^https?://"                   # must start with http:// or https://
-    r"[a-zA-Z0-9\-\.]+"             # hostname
-    r"(\.[a-zA-Z]{2,})?"            # TLD
-    r"(:[0-9]{1,5})?"               # optional port
-    r"(/[^\s]*)?$",                 # optional path (no whitespace)
-    re.IGNORECASE,
-)
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
 
 # Characters that should never appear in a research query
 _QUERY_BLACKLIST_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -112,32 +109,16 @@ _QUERY_BLACKLIST_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 def _validate_website_url(url: str) -> str:
     """
-    Validate a user-supplied website URL.
-
-    Rejects:
-    - Non-HTTP(S) schemes (file://, ftp://, etc.)
-    - Bare IP addresses that fall in private/loopback ranges (SSRF guard)
-    - URLs that don't match the basic URL pattern
+    Validate a user-supplied website URL using the consolidated
+    utils.validate_url (includes DNS resolution SSRF protection).
 
     Returns the validated URL, or raises HTTPException 422.
     """
-    if not _URL_RE.match(url):
+    if not validate_url(url):
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid website URL: '{url}'. Must be a valid http(s):// URL.",
+            detail=f"Invalid or unsafe website URL: '{url}'.",
         )
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
-    # SSRF guard: reject bare private-IP hostnames
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if any(addr in net for net in _PRIVATE_NETWORKS):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Website URL '{url}' resolves to a private/reserved address.",
-            )
-    except ValueError:
-        pass  # hostname is a domain name — allowed
     return url
 
 
@@ -314,17 +295,24 @@ def _save_pdf_locally(file_path: str, filename: str, metadata: Optional[Dict] = 
         except Exception as e:
             logger.error(f"Failed to upload {safe_filename} to Supabase Storage: {e}")
 
+    # Determine storage source; let caller override with a semantic source
+    # label (e.g. "generated", "uploaded") while keeping the storage origin
+    # as a separate field.
+    storage_origin = "local" if not supabase_url else "supabase"
+    caller_source = (metadata or {}).get("source", storage_origin)
+
     record: Dict = {
         "filename": safe_filename,
         "local_path": str(local_path),
         "supabase_url": supabase_url,
         "document_id": doc_id,
         "created_at": str(Path(file_path).stat().st_mtime),
-        "source": "local" if not supabase_url else "supabase",
+        "source": caller_source,
+        "storage_origin": storage_origin,
     }
     if metadata:
         # M3 – never let caller metadata silently overwrite core identity fields
-        protected = {"filename", "local_path", "supabase_url", "document_id", "created_at", "source"}
+        protected = {"filename", "local_path", "supabase_url", "document_id", "created_at", "source", "storage_origin"}
         record.update({k: v for k, v in metadata.items() if k not in protected})
 
     return record
@@ -395,6 +383,10 @@ def run_research(request: QueryRequest):
             },
         )
         result["local"] = local_doc
+        result["supabase_url"] = local_doc.get("supabase_url")
+        result["document_id"] = local_doc.get("document_id")
+        result["filename"] = local_doc.get("filename")
+        result["source"] = local_doc.get("source")
 
     return result
 
@@ -422,51 +414,48 @@ async def _research_stream_generator(
     query: str, websites: Optional[List[str]]
 ) -> AsyncGenerator[str, None]:
     """Run the research workflow in a thread and stream progress via SSE."""
-    import concurrent.futures
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result_container: Dict = {}
     error_container: Dict = {}
-
-    # Stage indices so we can emit progress events as each stage completes
-    stage_names = [s[0] for s in _PROGRESS_STAGES]
 
     # Emit the first stage immediately so the client sees activity right away
     yield await _sse_event({"stage": "planning", "message": "Planning Research...", "progress": 0})
 
     def _run() -> dict:
-        """Blocking call – executed in a thread pool so the event loop stays free."""
+        """Blocking call – executed in the default thread pool so the event loop stays free."""
         return research(query, websites)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = loop.run_in_executor(pool, _run)
+    # Use the default executor (None) to avoid ThreadPoolExecutor context-manager
+    # lifecycle issues when the client disconnects mid-stream.
+    future = loop.run_in_executor(None, _run)
 
-        # While the research task is running, emit heartbeat progress events
-        # that map roughly to the five workflow stages.
-        # Each stage is ~5 s apart (total ≈ 25 s observed).  We advance through
-        # the stages pseudo-sequentially so the UI looks alive.
-        stage_index = 1  # 0 was already emitted above
-        elapsed = 0.0
-        stage_interval = 5.0  # seconds between synthetic stage advances
+    # While the research task is running, emit heartbeat progress events
+    # that map roughly to the five workflow stages.
+    # Each stage is ~5 s apart (total ≈ 25 s observed).  We advance through
+    # the stages pseudo-sequentially so the UI looks alive.
+    stage_index = 1  # 0 was already emitted above
+    elapsed = 0.0
+    stage_interval = 5.0  # seconds between synthetic stage advances
 
-        while not future.done():
-            await asyncio.sleep(1.0)
-            elapsed += 1.0
+    while not future.done():
+        await asyncio.sleep(1.0)
+        elapsed += 1.0
 
-            # Advance to the next stage label on a timer
-            next_stage_time = stage_index * stage_interval
-            if elapsed >= next_stage_time and stage_index < len(_PROGRESS_STAGES) - 1:
-                stage_key, stage_msg = _PROGRESS_STAGES[stage_index]
-                progress = int((stage_index / (len(_PROGRESS_STAGES) - 1)) * 100)
-                yield await _sse_event({"stage": stage_key, "message": stage_msg, "progress": progress})
-                stage_index += 1
+        # Advance to the next stage label on a timer
+        next_stage_time = stage_index * stage_interval
+        if elapsed >= next_stage_time and stage_index < len(_PROGRESS_STAGES) - 1:
+            stage_key, stage_msg = _PROGRESS_STAGES[stage_index]
+            progress = int((stage_index / (len(_PROGRESS_STAGES) - 1)) * 100)
+            yield await _sse_event({"stage": stage_key, "message": stage_msg, "progress": progress})
+            stage_index += 1
 
-        # Collect result or error
-        try:
-            result = future.result()
-            result_container.update(result)
-        except Exception as exc:
-            error_container["error"] = str(exc)
+    # Collect result or error
+    try:
+        result = future.result()
+        result_container.update(result)
+    except Exception as exc:
+        error_container["error"] = str(exc)
 
     if error_container:
         yield await _sse_event({
@@ -475,6 +464,27 @@ async def _research_stream_generator(
             "progress": 0,
         })
         return
+
+    # Optionally persist the PDF locally and upload to Supabase Storage
+    pdf_path = result_container.get("pdf_path")
+    if pdf_path and Path(pdf_path).exists():
+        try:
+            local_doc = _save_pdf_locally(
+                file_path=pdf_path,
+                filename=Path(pdf_path).name,
+                metadata={
+                    "query": query,
+                    "summary": result_container.get("summary", ""),
+                    "source": "generated",
+                },
+            )
+            result_container["local"] = local_doc
+            result_container["supabase_url"] = local_doc.get("supabase_url")
+            result_container["document_id"] = local_doc.get("document_id")
+            result_container["filename"] = local_doc.get("filename")
+            result_container["source"] = local_doc.get("source")
+        except Exception as exc:
+            logger.warning("Could not persist PDF locally for streamed research: %s", exc)
 
     # Emit the "done" event with the full result payload (including sources)
     yield await _sse_event({
@@ -654,6 +664,10 @@ def get_job_result(job_id: str):
                 },
             )
             payload["local"] = local_doc
+            payload["supabase_url"] = local_doc.get("supabase_url")
+            payload["document_id"] = local_doc.get("document_id")
+            payload["filename"] = local_doc.get("filename")
+            payload["source"] = local_doc.get("source")
         except Exception as exc:
             logger.warning("Could not persist PDF locally for job %s: %s", job_id, exc)
 
@@ -722,6 +736,15 @@ async def upload_pdf_for_qa(
                 if total_bytes > _MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="Uploaded PDF is too large")
                 handle.write(chunk)
+
+        # SEC-4 – Validate PDF magic bytes to prevent disguised file uploads
+        with open(tmp_path, "rb") as check:
+            magic = check.read(5)
+        if magic != b"%PDF-":
+            raise HTTPException(
+                status_code=400,
+                detail="File does not appear to be a valid PDF (bad magic bytes)",
+            )
 
         record = _save_pdf_locally(
             file_path=tmp_path,
@@ -803,7 +826,7 @@ def list_documents(limit: int = Query(default=50, ge=1, le=200)):
                 "source": "local",
             })
 
-        items.sort(key=lambda x: float(x.get("created_at", 0)), reverse=True)
+        items.sort(key=lambda x: str(x.get("created_at", "0")), reverse=True)
         items = items[:limit]
 
     return DocumentListResponse(documents=items)
@@ -818,6 +841,8 @@ def download_pdf(filename: str):
     target = (_OUTPUT_DIR / safe_name).resolve()
     if target.parent != _OUTPUT_DIR:
         raise HTTPException(status_code=400, detail="Invalid file path")
+
+    serve_path = str(target)
     if not target.exists():
         # Try to download from Supabase Storage to local cache
         parts = safe_name.split("_", 1)
@@ -825,5 +850,11 @@ def download_pdf(filename: str):
         downloaded = _download_from_supabase_storage(doc_id)
         if not downloaded or not Path(downloaded).exists():
             raise HTTPException(status_code=404, detail="File not found")
+        serve_path = downloaded
 
-    return FileResponse(str(target), media_type="application/pdf", filename=safe_name)
+    return FileResponse(
+        serve_path,
+        media_type="application/pdf",
+        filename=safe_name,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )

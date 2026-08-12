@@ -11,25 +11,12 @@ from typing import Dict, Optional
 
 import requests
 from bs4 import BeautifulSoup
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from utils import validate_url, rate_limit, log_error, logger
 from config import SEARCH_CONFIG, USER_AGENT, API_CONFIG
+from scrapping.http import fetch_with_retry as _fetch_with_retry
 
 
-@retry(
-    stop=stop_after_attempt(SEARCH_CONFIG.get("max_retries", 3)),
-    wait=wait_exponential(multiplier=SEARCH_CONFIG.get("retry_delay", 1), min=1, max=10),
-    retry=retry_if_exception_type((requests.RequestException, ConnectionError))
-)
-@rate_limit
-def _fetch_with_retry(url: str, headers: dict, timeout: int, method: str = 'GET', **kwargs) -> requests.Response:
-    """Fetch URL with retry logic and rate limiting."""
-    # M5 – never allow callers to disable SSL certificate verification
-    kwargs.pop('verify', None)
-    response = requests.request(method, url, headers=headers, timeout=timeout, verify=True, **kwargs)
-    response.raise_for_status()
-    return response
 
 
 def _normalize_input_url(url: str) -> str:
@@ -202,7 +189,7 @@ def extract_content(url: str) -> Dict:
             max_length = SEARCH_CONFIG.get("max_content_length", 5000)
             content_text = content_text[:max_length]
 
-            print(f"✓ Extracted content from: {title_text[:60]}")
+            logger.info(f"Extracted content from: {title_text[:60]}")
             return {
                 'url': normalized_url,
                 'title': title_text,
@@ -325,7 +312,7 @@ def extract_content(url: str) -> Dict:
         max_length = SEARCH_CONFIG.get("max_content_length", 5000)
         content_text = content_text[:max_length]
         
-        print(f"✓ Extracted content from: {title_text[:60]}")
+        logger.info(f"Extracted content from: {title_text[:60]}")
         return {
             'url': normalized_url,
             'title': title_text,
@@ -335,7 +322,7 @@ def extract_content(url: str) -> Dict:
     except requests.exceptions.Timeout:
         error_msg = f"Timeout while accessing {normalized_url}"
         log_error(TimeoutError(error_msg), "extract_content")
-        print(f"✗ {error_msg}")
+        logger.warning(f"{error_msg}")
         return {
             'url': normalized_url,
             'title': 'Error - Timeout',
@@ -345,7 +332,7 @@ def extract_content(url: str) -> Dict:
     except requests.exceptions.HTTPError as e:
         error_msg = f"HTTP error {e.response.status_code if e.response else 'unknown'}"
         log_error(e, f"extract_content - {normalized_url}")
-        print(f"✗ Error extracting from {normalized_url}: {error_msg}")
+        logger.warning(f"Error extracting from {normalized_url}: {error_msg}")
         return {
             'url': normalized_url,
             'title': 'Error - HTTP Error',
@@ -354,7 +341,7 @@ def extract_content(url: str) -> Dict:
         }
     except Exception as e:
         log_error(e, f"extract_content - {normalized_url}")
-        print(f"✗ Error extracting from {normalized_url}: {str(e)}")
+        logger.warning(f"Error extracting from {normalized_url}: {str(e)}")
         return {
             'url': normalized_url,
             'title': 'Error',

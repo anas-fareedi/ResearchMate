@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -15,6 +16,10 @@ from utils import validate_api_key, log_error
 class TextChunk:
     index: int
     text: str
+
+
+_CHUNKS_CACHE = {}
+_CACHE_LOCK = threading.Lock()
 
 
 def _normalize_text(text: str) -> str:
@@ -42,6 +47,38 @@ def _chunk_text(text: str, chunk_size: int = 1200, overlap: int = 150) -> List[T
         start = end - overlap
         i += 1
     return chunks
+
+
+def _get_cached_chunks(pdf_path: str) -> List[TextChunk]:
+    """Retrieve PDF chunks from memory cache if file has not changed."""
+    try:
+        mtime = os.path.getmtime(pdf_path)
+    except OSError:
+        mtime = 0.0
+
+    cache_key = (pdf_path, mtime)
+    with _CACHE_LOCK:
+        if cache_key in _CHUNKS_CACHE:
+            return _CHUNKS_CACHE[cache_key]
+
+        # Prevent unbound memory growth (evict everything if cache becomes too large)
+        if len(_CHUNKS_CACHE) > 32:
+            _CHUNKS_CACHE.clear()
+
+    # Perform PDF reading/extraction outside the lock to minimize contention
+    reader = PdfReader(pdf_path)
+    all_text: List[str] = []
+    for page in reader.pages:
+        page_text = page.extract_text() or ""
+        if page_text.strip():
+            all_text.append(page_text)
+
+    merged = "\n".join(all_text)
+    chunks = _chunk_text(merged)
+
+    with _CACHE_LOCK:
+        _CHUNKS_CACHE[cache_key] = chunks
+        return chunks
 
 
 def _tokenize(text: str) -> List[str]:
@@ -86,15 +123,7 @@ class PDFRAGChatbot:
                 f"Limit is 50 MB."
             )
 
-        reader = PdfReader(pdf_path)
-        all_text: List[str] = []
-        for page in reader.pages:
-            page_text = page.extract_text() or ""
-            if page_text.strip():
-                all_text.append(page_text)
-
-        merged = "\n".join(all_text)
-        return _chunk_text(merged)
+        return _get_cached_chunks(pdf_path)
 
     def _retrieve(self, question: str, top_k: int = 4) -> List[TextChunk]:
         scored: List[Tuple[int, TextChunk]] = []

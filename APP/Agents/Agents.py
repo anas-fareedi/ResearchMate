@@ -1,6 +1,5 @@
 import os
 import sys
-import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Ensure parent directory is on the path before any local imports
@@ -13,7 +12,7 @@ from scrapping.extract import extract_content
 from document_gen import save_to_json, save_to_pdf
 from langchain_google_genai import ChatGoogleGenerativeAI
 from config import API_CONFIG, LLM_CONFIG, DEFAULT_WEBSITES, SEARCH_CONFIG, SUMMARY_CONFIG
-from utils import validate_api_key, log_error, logger
+from utils import validate_api_key, log_error, logger, update_celery_progress
 
 _llm = None  # lazy singleton — created on first use
 
@@ -39,6 +38,7 @@ def planning_agent(state: ResearchState) -> ResearchState:
     Analyzes the query and plans the research strategy.
     Extracts key search terms and determines which websites to search.
     """
+    update_celery_progress("planning", "Planning Research...", 10)
     query = state['query']
     
     try:
@@ -87,6 +87,7 @@ def search_agent(state: ResearchState) -> ResearchState:
     All search providers (Tavily, Google, Semantic Scholar, per-website)
     are fired concurrently and their results merged.
     """
+    update_celery_progress("searching", "Searching Sources...", 30)
     query = state['query']
     websites = state['websites']
 
@@ -142,6 +143,7 @@ def extraction_agent(state: ResearchState) -> ResearchState:
     Extracts content from discovered URLs in parallel.
     Uses a bounded thread pool so we don't hammer target servers.
     """
+    update_celery_progress("extracting", "Extracting Content...", 50)
     urls = state['urls_found']
 
     if not urls:
@@ -199,6 +201,7 @@ def summarization_agent(state: ResearchState) -> ResearchState:
     """
     Uses AI to summarize and synthesize the extracted content.
     """
+    update_celery_progress("summarizing", "Generating Report...", 70)
     query = state['query']
     content = state['content']
     
@@ -271,6 +274,7 @@ def saving_agent(state: ResearchState) -> ResearchState:
     """
     Saves the research results to JSON and PDF files.
     """
+    update_celery_progress("saving", "Creating PDF...", 90)
     from datetime import datetime as _dt
 
     query = state['query']
