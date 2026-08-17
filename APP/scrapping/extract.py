@@ -170,32 +170,94 @@ def extract_content(url: str) -> Dict:
             root = data.get('abstracts-retrieval-response', {})
             core = root.get('coredata', {})
             scopus_match = re.search(r"scopus_id/(\d+)", normalized_url, re.IGNORECASE)
-            fallback_title = f"Scopus ID {scopus_match.group(1)}" if scopus_match else "Elsevier Abstract"
+            scopus_id = scopus_match.group(1) if scopus_match else ""
+            fallback_title = f"Scopus ID {scopus_id}" if scopus_id else "Elsevier Abstract"
 
             title_text = (
                 core.get('dc:title')
-                or core.get('dc:description')
                 or core.get('prism:publicationName')
                 or fallback_title
-            )
+            ).strip()
 
-            content_text = (
+            # ── Try to get abstract text from multiple known locations ─────
+            abstract_text = (
                 core.get('dc:description')
                 or _first_text_value(root, {'dc:description', 'abstract', 'ce:para'})
-            )
-            if not content_text:
-                content_text = json.dumps(core, ensure_ascii=False)
+                or ""
+            ).strip()
+
+            # ── Build a clean readable summary from Scopus metadata ────────
+            # Even when there is no abstract, we can construct a useful
+            # paragraph from the structured metadata fields.
+            def _authors_str(core_data: dict) -> str:
+                """Extract author name(s) from Scopus coredata."""
+                creator = core_data.get('dc:creator', {})
+                if isinstance(creator, dict):
+                    author = creator.get('author', {})
+                    if isinstance(author, dict):
+                        given = author.get('ce:given-name', '')
+                        surname = author.get('ce:surname', '')
+                        return f"{given} {surname}".strip()
+                    if isinstance(author, list):
+                        names = []
+                        for a in author[:3]:
+                            g = a.get('ce:given-name', '')
+                            s = a.get('ce:surname', '')
+                            name = f"{g} {s}".strip()
+                            if name:
+                                names.append(name)
+                        return ', '.join(names) + (' et al.' if len(author) > 3 else '')
+                return ''
+
+            journal = core.get('prism:publicationName', '')
+            doi = core.get('prism:doi', '')
+            pub_date = core.get('prism:coverDate', '')[:4]  # year only
+            volume = core.get('prism:volume', '')
+            cited_by = core.get('citedby-count', '')
+            subtype_desc = core.get('subtypeDescription', '')
+            authors = _authors_str(core)
+            open_access = core.get('openaccessFlag', 'false')
+
+            if abstract_text:
+                content_text = abstract_text
+            else:
+                # No abstract available — build a metadata paragraph
+                parts = []
+                if subtype_desc:
+                    parts.append(f"Article type: {subtype_desc}.")
+                if authors:
+                    parts.append(f"Authors: {authors}.")
+                if journal:
+                    vol_str = f", Volume {volume}" if volume else ""
+                    year_str = f" ({pub_date})" if pub_date else ""
+                    parts.append(f"Published in: {journal}{vol_str}{year_str}.")
+                if doi:
+                    parts.append(f"DOI: {doi}.")
+                if cited_by:
+                    parts.append(f"Cited by: {cited_by} article(s).")
+                oa_label = "Open access" if open_access == "true" else "Subscription required"
+                parts.append(f"Access: {oa_label}.")
+                if scopus_id:
+                    parts.append(
+                        f"Full record available at: https://www.scopus.com/record/display.uri?"
+                        f"eid=2-s2.0-{scopus_id}&origin=inward"
+                    )
+                content_text = ' '.join(parts) if parts else (
+                    f"Metadata-only record. Title: {title_text}. "
+                    f"Scopus ID: {scopus_id}."
+                )
 
             max_length = SEARCH_CONFIG.get("max_content_length", 5000)
             content_text = content_text[:max_length]
 
-            logger.info(f"Extracted content from: {title_text[:60]}")
+            logger.info(f"Extracted Elsevier record: {title_text[:80]}")
             return {
                 'url': normalized_url,
                 'title': title_text,
                 'content': content_text,
                 'extracted_at': datetime.now().isoformat()
             }
+
 
         soup = BeautifulSoup(response.content, 'html.parser')
         
