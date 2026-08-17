@@ -1,6 +1,5 @@
 /.start_local.bat
 /.start_local.sh
-
 /.env
 /.env.local
 /.env.*.local

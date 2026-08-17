@@ -242,8 +242,19 @@ Note: The research assistant successfully completed all steps but couldn't retri
         
         # M2 – delimit user query and source content to resist prompt injection
         prompt = (
-            f"Summarize the content to answer the query in {summary_length}. "
-            "Synthesize across sources and include key findings.\n"
+            f"You are a professional research analyst. Write a detailed, well-structured research report "
+            f"in plain prose ({summary_length}) that directly answers the query below.\n\n"
+            "Structure your report in four clearly labeled sections using plain text headings "
+            "(no markdown, no bullet points, no asterisks):\n"
+            "  Introduction: Provide context and state what the report covers.\n"
+            "  Key Findings: Summarize the most important facts, data, and conclusions from the sources.\n"
+            "  Analysis: Synthesize patterns, compare perspectives, and highlight agreements or contradictions.\n"
+            "  Conclusion: Summarize the overall answer to the query and note any gaps or open questions.\n\n"
+            "Rules:\n"
+            "  - Write in clear, formal prose paragraphs. Do NOT use bullet points, dashes, or asterisks.\n"
+            "  - Do NOT include any URLs or web addresses in the text.\n"
+            "  - Do NOT use markdown formatting (no **, __, ##, etc.).\n"
+            "  - Each section must be a full paragraph of at least 3-4 sentences.\n\n"
             'Query: """\n'
             f"{query}\n"
             '"""\n\n'

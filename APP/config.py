@@ -90,7 +90,8 @@ API_CONFIG = {
 LLM_CONFIG = {
     "model": "gemini-2.5-flash-lite",
     "temperature": 0.3,
-    "max_tokens": 1024,
+    # Raised from 1024 → 4096 so the LLM can produce full, detailed summaries
+    "max_tokens": 4096,
 }
 
 SEARCH_CONFIG = {
@@ -110,7 +111,8 @@ SEARCH_CONFIG = {
     # Minimum estimated pages the PDF must reach before the fallback loop stops.
     "pdf_min_pages": 3,
     # Characters of source body text to include per source in the PDF.
-    "pdf_chars_per_source": 3000,
+    # Raised from 3000 → 5000 to include more content per source.
+    "pdf_chars_per_source": 5000,
 }
 
 DEFAULT_WEBSITES = [
@@ -130,10 +132,12 @@ OUTPUT_CONFIG = {
 }
 
 SUMMARY_CONFIG = {
-    # Raised from 3 → 5 to produce a richer, more comprehensive AI summary
-    "max_sources_to_summarize": 5,
-    "max_content_per_source": 1000,
-    "summary_length": "300-450 words",
+    # Raised from 5 → 8 to draw from more sources for a richer summary
+    "max_sources_to_summarize": 8,
+    # Raised from 1000 → 2000 chars so each source contributes more context
+    "max_content_per_source": 2000,
+    # Raised from 300-450 → 600-800 words for a comprehensive report
+    "summary_length": "600-800 words",
 }
 
 USER_AGENT = (
